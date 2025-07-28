@@ -13,7 +13,7 @@ import java.util.UUID;
 @AllArgsConstructor
 @Builder
 @Table(name = "orders")
-public class Order {
+public class CustomerOrder {
 
     @Id
     @GeneratedValue

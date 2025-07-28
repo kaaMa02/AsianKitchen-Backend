@@ -17,6 +17,7 @@ public class BuffetItem {
     private UUID uuid;
 
     @ManyToOne
+    @JoinColumn
     private FoodItem foodItem;
 
     private boolean available;

@@ -1,6 +1,6 @@
 package ch.asiankitchen.controller;
 
-import ch.asiankitchen.model.Order;
+import ch.asiankitchen.model.CustomerOrder;
 import ch.asiankitchen.repository.OrderRepository;
 import org.springframework.web.bind.annotation.*;
 import java.util.UUID;
@@ -17,7 +17,7 @@ public class OrderTrackingController {
     }
 
     @GetMapping("/track")
-    public Order track(@RequestParam UUID orderId, @RequestParam String email) {
+    public CustomerOrder track(@RequestParam UUID orderId, @RequestParam String email) {
         return repo.findById(orderId)
                 .filter(o->o.getCustomerInfo()!=null
                         && o.getCustomerInfo().getEmail().equalsIgnoreCase(email))

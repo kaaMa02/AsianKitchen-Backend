@@ -1,6 +1,6 @@
 package ch.asiankitchen.controller;
 
-import ch.asiankitchen.model.Order;
+import ch.asiankitchen.model.CustomerOrder;
 import ch.asiankitchen.model.Status;
 import ch.asiankitchen.repository.OrderRepository;
 import org.springframework.web.bind.annotation.*;
@@ -21,15 +21,15 @@ public class OrderPublicController {
     }
 
     @PostMapping
-    public Order createOrder(@RequestBody Order order) {
-        order.setCreatedAt(LocalDateTime.now());
-        order.setStatus(Status.ORDER_NEW);
-        order.getOrderItems().forEach(item -> item.setOrder(order));
-        return orderRepository.save(order);
+    public CustomerOrder createOrder(@RequestBody CustomerOrder customerOrder) {
+        customerOrder.setCreatedAt(LocalDateTime.now());
+        customerOrder.setStatus(Status.ORDER_NEW);
+        customerOrder.getOrderItems().forEach(item -> item.setCustomerOrder(customerOrder));
+        return orderRepository.save(customerOrder);
     }
 
     @GetMapping("/my-orders")
-    public List<Order> getMyOrders(@RequestParam UUID userId) {
+    public List<CustomerOrder> getMyOrders(@RequestParam UUID userId) {
         return orderRepository.findByUserId(userId);
     }
 }
