@@ -37,7 +37,6 @@ public class AdminUserController {
     // Create new user
     @PostMapping
     public User createUser(@RequestBody User user) {
-        // Encode password before saving!
         user.setPassword(passwordEncoder.encode(user.getPassword()));
         return userRepository.save(user);
     }
@@ -60,7 +59,6 @@ public class AdminUserController {
         return userRepository.save(existingUser);
     }
 
-    // Delete user
     @DeleteMapping("/{id}")
     public void deleteUser(@PathVariable UUID id) {
         userRepository.deleteById(id);

@@ -1,11 +1,8 @@
 package ch.asiankitchen.controller;
 
-
 import ch.asiankitchen.model.RestaurantInfo;
 import ch.asiankitchen.repository.RestaurantInfoRepository;
 import org.springframework.web.bind.annotation.*;
-
-import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/restaurant-info")
