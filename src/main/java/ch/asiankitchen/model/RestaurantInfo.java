@@ -2,6 +2,8 @@ package ch.asiankitchen.model;
 
 import jakarta.persistence.*;
 import lombok.*;
+
+import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Entity
@@ -31,4 +33,11 @@ public class RestaurantInfo {
 
     @Lob
     private String openingHours;
+
+    private LocalDateTime createdAt;
+
+    @PrePersist
+    public void prePersist() {
+        this.createdAt = LocalDateTime.now();
+    }
 }

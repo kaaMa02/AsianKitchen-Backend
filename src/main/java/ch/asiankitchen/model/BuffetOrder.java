@@ -28,17 +28,26 @@ public class BuffetOrder {
     private CustomerInfo customerInfo;
 
     @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
     private OrderType orderType;
 
     @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
     private Status status;
 
     @OneToMany(mappedBy = "buffetOrder", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<BuffetOrderItem> buffetOrderItems = new ArrayList<>();
 
+    @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
+
     private double totalPrice;
 
     @Lob
     private String specialInstructions;
+
+    @PrePersist
+    public void prePersist() {
+        this.createdAt = LocalDateTime.now();
+    }
 }

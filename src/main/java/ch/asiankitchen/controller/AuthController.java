@@ -1,33 +1,29 @@
 package ch.asiankitchen.controller;
 
+import ch.asiankitchen.dto.UserReadDTO;
+import ch.asiankitchen.dto.UserWriteDTO;
 import ch.asiankitchen.model.Role;
 import ch.asiankitchen.model.User;
 import ch.asiankitchen.repository.UserRepository;
-import org.springframework.security.crypto.password.PasswordEncoder;
+import ch.asiankitchen.service.AuthService;
+import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
+import org.springframework.security.crypto.password.PasswordEncoder;
 
 @RestController
 @RequestMapping("/api/auth")
-@CrossOrigin(origins = "http://localhost:3000")
 public class AuthController {
 
-    private final UserRepository userRepository;
-    private final PasswordEncoder passwordEncoder;
+    private final AuthService authService;
 
-    public AuthController(UserRepository userRepository, PasswordEncoder passwordEncoder) {
-        this.userRepository = userRepository;
-        this.passwordEncoder = passwordEncoder;
+    public AuthController(AuthService authService) {
+        this.authService = authService;
     }
 
     @PostMapping("/register")
-    public User registerCustomer(@RequestBody User user) {
-        if (userRepository.findByUsername(user.getUsername()).isPresent()) {
-            throw new RuntimeException("Username already exists");
-        }
-
-        user.setPassword(passwordEncoder.encode(user.getPassword()));
-        user.setRole(Role.CUSTOMER);
-
-        return userRepository.save(user);
+    public UserReadDTO registerCustomer(@Valid @RequestBody UserWriteDTO userDto) {
+        return authService.registerCustomer(userDto);
     }
 }

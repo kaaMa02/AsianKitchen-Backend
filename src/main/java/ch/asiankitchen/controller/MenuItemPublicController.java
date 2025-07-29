@@ -1,5 +1,6 @@
 package ch.asiankitchen.controller;
 
+import ch.asiankitchen.dto.MenuItemDTO;
 import ch.asiankitchen.model.MenuItem;
 import ch.asiankitchen.repository.MenuItemRepository;
 import org.springframework.web.bind.annotation.CrossOrigin;
@@ -11,7 +12,6 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/menu-items")
-@CrossOrigin(origins = "http://localhost:3000")
 public class MenuItemPublicController {
 
     private final MenuItemRepository menuItemRepository;
@@ -21,7 +21,10 @@ public class MenuItemPublicController {
     }
 
     @GetMapping
-    public List<MenuItem> getAvailableMenuItems() {
-        return menuItemRepository.findByAvailableTrue();
+    public List<MenuItemDTO> getAvailableMenuItems() {
+        return menuItemRepository.findByAvailableTrue()
+                .stream()
+                .map(MenuItemDTO::fromEntity)
+                .toList();
     }
 }

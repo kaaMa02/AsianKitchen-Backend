@@ -1,6 +1,8 @@
 package ch.asiankitchen.model;
 
 import jakarta.persistence.*;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import lombok.*;
 import java.util.UUID;
 
@@ -16,6 +18,8 @@ public class FoodItem {
     @Column(columnDefinition = "BINARY(16)")
     private UUID id;
 
+    @NotBlank
+    @Size(max = 255)
     private String name;
 
     @Lob
@@ -27,5 +31,6 @@ public class FoodItem {
     @Lob
     private String allergies;
 
+    @Size(max = 512)
     private String imageUrl;
 }

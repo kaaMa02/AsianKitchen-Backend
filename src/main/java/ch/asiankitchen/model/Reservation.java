@@ -26,9 +26,17 @@ public class Reservation {
 
     private LocalDateTime reservationDateTime;
     private int numberOfPeople;
+
+    @Lob
     private String specialRequests;
+
     private LocalDateTime createdAt;
 
     @Enumerated(EnumType.STRING)
     private Status status;
+
+    @PrePersist
+    public void prePersist() {
+        this.createdAt = LocalDateTime.now();
+    }
 }

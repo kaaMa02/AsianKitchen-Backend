@@ -1,26 +1,24 @@
 package ch.asiankitchen.controller;
 
+import ch.asiankitchen.dto.CustomerOrderReadDTO;
 import ch.asiankitchen.model.CustomerOrder;
-import ch.asiankitchen.repository.OrderRepository;
+import ch.asiankitchen.repository.CustomerOrderRepository;
+import ch.asiankitchen.service.CustomerOrderService;
 import org.springframework.web.bind.annotation.*;
 import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/orders")
-@CrossOrigin(origins = "http://localhost:3000")
 public class OrderTrackingController {
 
-    private final OrderRepository repo;
+    private final CustomerOrderService customerOrderService;
 
-    public OrderTrackingController(OrderRepository repo) {
-        this.repo = repo;
+    public OrderTrackingController(CustomerOrderService customerOrderService) {
+        this.customerOrderService = customerOrderService;
     }
 
     @GetMapping("/track")
-    public CustomerOrder track(@RequestParam UUID orderId, @RequestParam String email) {
-        return repo.findById(orderId)
-                .filter(o->o.getCustomerInfo()!=null
-                        && o.getCustomerInfo().getEmail().equalsIgnoreCase(email))
-                .orElseThrow();
+    public CustomerOrderReadDTO track(@RequestParam UUID orderId, @RequestParam String email) {
+        return customerOrderService.trackOrder(orderId, email);
     }
 }

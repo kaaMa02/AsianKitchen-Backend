@@ -12,7 +12,7 @@ import java.util.UUID;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-@Table(name = "orders")
+@Table(name = "customer_order")
 public class CustomerOrder {
 
     @Id
@@ -21,7 +21,7 @@ public class CustomerOrder {
     private UUID id;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "user_id", nullable = true)
+    @JoinColumn(name = "user_id")
     private User user;
 
     @Embedded
@@ -42,4 +42,9 @@ public class CustomerOrder {
 
     @Lob
     private String specialInstructions;
+
+    @PrePersist
+    protected void onCreate() {
+        this.createdAt = LocalDateTime.now();
+    }
 }

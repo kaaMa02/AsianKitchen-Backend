@@ -1,33 +1,39 @@
 package ch.asiankitchen.controller;
 
+import ch.asiankitchen.dto.BuffetOrderReadDTO;
+import ch.asiankitchen.dto.BuffetOrderWriteDTO;
 import ch.asiankitchen.model.BuffetOrder;
 import ch.asiankitchen.model.Status;
 import ch.asiankitchen.repository.BuffetOrderRepository;
+import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 import java.time.LocalDateTime;
 import java.util.*;
 
 @RestController
 @RequestMapping("/api/buffet-orders")
-@CrossOrigin(origins = "http://localhost:3000")
 public class BuffetOrderPublicController {
 
-    private final BuffetOrderRepository repo;
+    private final BuffetOrderRepository buffetOrderRepository;
 
-    public BuffetOrderPublicController(BuffetOrderRepository r){
-        this.repo=r;
+    public BuffetOrderPublicController(BuffetOrderRepository buffetOrderRepository) {
+        this.buffetOrderRepository = buffetOrderRepository;
     }
 
     @PostMapping
-    public BuffetOrder create(@RequestBody BuffetOrder b) {
-        b.setCreatedAt(LocalDateTime.now());
-        b.setStatus(Status.ORDER_NEW);
-        b.getBuffetOrderItems().forEach(i->i.setBuffetOrder(b));
-        return repo.save(b);
+    public BuffetOrderReadDTO createOrder(@Valid @RequestBody BuffetOrderWriteDTO dto) {
+        BuffetOrder order = dto.toEntity();
+        order.setCreatedAt(LocalDateTime.now());
+        order.setStatus(Status.ORDER_NEW);
+        order.getBuffetOrderItems().forEach(i -> i.setBuffetOrder(order));
+        BuffetOrder saved = buffetOrderRepository.save(order);
+        return BuffetOrderReadDTO.fromEntity(saved);
     }
 
-    @GetMapping("/my-orders")
-    public List<BuffetOrder> mine(@RequestParam UUID userId){
-        return repo.findByUserId(userId);
+    @GetMapping("/by-user")
+    public List<BuffetOrderReadDTO> getOrdersByUser(@RequestParam UUID userId) {
+        return buffetOrderRepository.findByUserId(userId).stream()
+                .map(BuffetOrderReadDTO::fromEntity)
+                .toList();
     }
 }

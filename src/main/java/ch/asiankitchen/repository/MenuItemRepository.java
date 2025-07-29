@@ -3,10 +3,12 @@ package ch.asiankitchen.repository;
 import ch.asiankitchen.model.MenuItem;
 import ch.asiankitchen.model.MenuItemCategory;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
 
 import java.util.List;
 import java.util.UUID;
 
+@Repository
 public interface MenuItemRepository extends JpaRepository<MenuItem, UUID> {
     List<MenuItem> findByAvailableTrue();
 }

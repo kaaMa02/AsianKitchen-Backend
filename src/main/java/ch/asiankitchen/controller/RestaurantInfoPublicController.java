@@ -1,12 +1,12 @@
 package ch.asiankitchen.controller;
 
-import ch.asiankitchen.model.RestaurantInfo;
+import ch.asiankitchen.dto.RestaurantInfoReadDTO;
 import ch.asiankitchen.repository.RestaurantInfoRepository;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/api/restaurant-info")
-@CrossOrigin(origins = "http://localhost:3000")
 public class RestaurantInfoPublicController {
 
     private final RestaurantInfoRepository restaurantInfoRepository;
@@ -15,12 +15,13 @@ public class RestaurantInfoPublicController {
         this.restaurantInfoRepository = restaurantInfoRepository;
     }
 
-    // Public API to fetch the current RestaurantInfo (no need to know its ID)
     @GetMapping("/current")
-    public RestaurantInfo getCurrentRestaurantInfo() {
+    public ResponseEntity<RestaurantInfoReadDTO> getCurrentRestaurantInfo() {
         return restaurantInfoRepository.findAll()
                 .stream()
                 .findFirst()
-                .orElseThrow(() -> new RuntimeException("No restaurant info found"));
+                .map(RestaurantInfoReadDTO::fromEntity)
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
     }
 }
