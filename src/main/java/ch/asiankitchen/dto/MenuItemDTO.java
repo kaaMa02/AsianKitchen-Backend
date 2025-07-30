@@ -7,23 +7,21 @@ import lombok.*;
 import java.util.UUID;
 
 @Data
-@NoArgsConstructor
-@AllArgsConstructor
 @Builder
 public class MenuItemDTO {
     private UUID id;
     private UUID foodItemId;
     private MenuItemCategory category;
     private boolean available;
-    private double price;
+    private Double price;
 
-    public static MenuItemDTO fromEntity(MenuItem item) {
+    public static MenuItemDTO fromEntity(MenuItem m) {
         return MenuItemDTO.builder()
-                .id(item.getId())
-                .foodItemId(item.getFoodItem().getId())
-                .category(item.getCategory())
-                .available(item.isAvailable())
-                .price(item.getPrice())
+                .id(m.getId())
+                .foodItemId(m.getFoodItem().getId())
+                .category(m.getCategory())
+                .available(m.isAvailable())
+                .price(m.getPrice())
                 .build();
     }
 }

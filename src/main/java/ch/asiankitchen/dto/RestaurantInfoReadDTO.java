@@ -1,14 +1,11 @@
 package ch.asiankitchen.dto;
 
-import ch.asiankitchen.model.Address;
 import ch.asiankitchen.model.RestaurantInfo;
 import lombok.*;
 
 import java.util.UUID;
 
 @Data
-@NoArgsConstructor
-@AllArgsConstructor
 @Builder
 public class RestaurantInfoReadDTO {
     private UUID id;
@@ -19,19 +16,25 @@ public class RestaurantInfoReadDTO {
     private String instagramUrl;
     private String googleMapsUrl;
     private String openingHours;
-    private Address address;
+    private AddressDTO address;
 
-    public static RestaurantInfoReadDTO fromEntity(RestaurantInfo info) {
+    public static RestaurantInfoReadDTO fromEntity(RestaurantInfo i) {
+        var addr = i.getAddress();
         return RestaurantInfoReadDTO.builder()
-                .id(info.getId())
-                .name(info.getName())
-                .aboutText(info.getAboutText())
-                .phone(info.getPhone())
-                .email(info.getEmail())
-                .instagramUrl(info.getInstagramUrl())
-                .googleMapsUrl(info.getGoogleMapsUrl())
-                .openingHours(info.getOpeningHours())
-                .address(info.getAddress())
+                .id(i.getId())
+                .name(i.getName())
+                .aboutText(i.getAboutText())
+                .phone(i.getPhone())
+                .email(i.getEmail())
+                .instagramUrl(i.getInstagramUrl())
+                .googleMapsUrl(i.getGoogleMapsUrl())
+                .openingHours(i.getOpeningHours())
+                .address(AddressDTO.builder()
+                        .street(addr.getStreet())
+                        .streetNo(addr.getStreetNo())
+                        .plz(addr.getPlz())
+                        .city(addr.getCity())
+                        .build())
                 .build();
     }
 }

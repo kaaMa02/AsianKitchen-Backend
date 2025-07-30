@@ -7,19 +7,20 @@ import lombok.*;
 import java.util.UUID;
 
 @Entity
+@Table(name = "food_item")
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
 public class FoodItem {
-
     @Id
     @GeneratedValue
-    @Column(columnDefinition = "BINARY(16)")
+    @Column(columnDefinition = "UUID")
     private UUID id;
 
     @NotBlank
     @Size(max = 255)
+    @Column(nullable = false)
     private String name;
 
     @Lob
@@ -32,5 +33,6 @@ public class FoodItem {
     private String allergies;
 
     @Size(max = 512)
+    @Column(name = "image_url")
     private String imageUrl;
 }

@@ -1,7 +1,7 @@
 package ch.asiankitchen.controller;
 
 import ch.asiankitchen.dto.BuffetItemReadDTO;
-import ch.asiankitchen.repository.BuffetItemRepository;
+import ch.asiankitchen.service.BuffetItemService;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -9,24 +9,14 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/buffet-items")
 public class BuffetItemPublicController {
+    private final BuffetItemService service;
 
-    private final BuffetItemRepository buffetItemRepository;
-
-    public BuffetItemPublicController(BuffetItemRepository buffetItemRepository) {
-        this.buffetItemRepository = buffetItemRepository;
+    public BuffetItemPublicController(BuffetItemService service) {
+        this.service = service;
     }
 
     @GetMapping
-    public List<BuffetItemReadDTO> getAvailableBuffetItems() {
-        return buffetItemRepository.findByAvailableTrue()
-                .stream()
-                .map(item -> BuffetItemReadDTO.builder()
-                        .id(item.getId())
-                        .available(item.isAvailable())
-                        .foodItemId(item.getFoodItem().getId())
-                        .foodItemName(item.getFoodItem().getName())
-                        .build())
-                .toList();
+    public List<BuffetItemReadDTO> listAvailable() {
+        return service.listAvailable();
     }
-
 }

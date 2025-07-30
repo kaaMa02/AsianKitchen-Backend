@@ -1,52 +1,59 @@
 package ch.asiankitchen.service;
 
-import ch.asiankitchen.dto.ReservationReadDTO;
-import ch.asiankitchen.dto.ReservationWriteDTO;
-import ch.asiankitchen.model.Reservation;
-import ch.asiankitchen.model.Status;
+import ch.asiankitchen.dto.*;
+import ch.asiankitchen.exception.ResourceNotFoundException;
 import ch.asiankitchen.repository.ReservationRepository;
-import jakarta.transaction.Transactional;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
-import java.util.List;
-import java.util.UUID;
+import java.util.*;
+import java.util.stream.*;
 
 @Service
 public class ReservationService {
+    private final ReservationRepository repo;
 
-    private final ReservationRepository reservationRepository;
-
-    public ReservationService(ReservationRepository reservationRepository) {
-        this.reservationRepository = reservationRepository;
+    public ReservationService(ReservationRepository repo) {
+        this.repo = repo;
     }
 
     @Transactional
-    public ReservationReadDTO createReservation(ReservationWriteDTO dto) {
-        Reservation reservation = dto.toEntity();
-        Reservation saved = reservationRepository.save(reservation);
+    public ReservationReadDTO create(ReservationWriteDTO dto) {
+        var saved = repo.save(dto.toEntity());
         return ReservationReadDTO.fromEntity(saved);
     }
 
-    public List<ReservationReadDTO> getReservationsByUser(UUID userId) {
-        return reservationRepository.findByUserId(userId)
-                .stream()
+    @Transactional(readOnly = true)
+    public ReservationReadDTO getById(UUID id) {
+        return repo.findById(id)
                 .map(ReservationReadDTO::fromEntity)
-                .toList();
+                .orElseThrow(() -> new ResourceNotFoundException("Reservation", id));
     }
 
-    public List<Reservation> getAll() {
-        return reservationRepository.findAll();
+    @Transactional(readOnly = true)
+    public List<ReservationReadDTO> listByUser(UUID userId) {
+        return repo.findByUserId(userId).stream()
+                .map(ReservationReadDTO::fromEntity)
+                .collect(Collectors.toList());
     }
 
     @Transactional
-    public Reservation updateStatus(UUID id, Status status) {
-        Reservation reservation = reservationRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Reservation not found"));
-        reservation.setStatus(status);
-        return reservationRepository.save(reservation);
+    public ReservationReadDTO updateStatus(UUID id, ch.asiankitchen.model.ReservationStatus status) {
+        var r = repo.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Reservation", id));
+        r.setStatus(status);
+        return ReservationReadDTO.fromEntity(repo.save(r));
     }
 
+    @Transactional(readOnly = true)
+    public List<ReservationReadDTO> listAll() {
+        return repo.findAll().stream()
+                .map(ReservationReadDTO::fromEntity)
+                .collect(Collectors.toList());
+    }
+
+    @Transactional
     public void delete(UUID id) {
-        reservationRepository.deleteById(id);
+        repo.deleteById(id);
     }
 }

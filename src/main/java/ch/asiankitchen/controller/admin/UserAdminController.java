@@ -3,7 +3,6 @@ package ch.asiankitchen.controller.admin;
 import ch.asiankitchen.dto.UserReadDTO;
 import ch.asiankitchen.dto.UserWriteDTO;
 import ch.asiankitchen.model.User;
-import ch.asiankitchen.service.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
@@ -16,34 +15,34 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class UserAdminController {
 
-    private final UserService userService;
+    private final UserAd userPublicService;
 
     @GetMapping
     public List<UserReadDTO> getAllUsers() {
-        return userService.getAllUsers();
+        return userPublicService.getAllUsers();
     }
 
     @GetMapping("/{id}")
     public UserReadDTO getUserById(@PathVariable UUID id) {
-        return userService.getUserDtoById(id);
+        return userPublicService.getUserDtoById(id);
     }
 
     @PostMapping
     public UserReadDTO createUser(@Valid @RequestBody UserWriteDTO userDto) {
-        return userService.createUser(userDto);
+        return userPublicService.createUser(userDto);
     }
 
     @PutMapping("/{id}")
     public UserReadDTO updateUser(@PathVariable UUID id, @Valid @RequestBody UserWriteDTO userDto) {
-        User existingUser = userService.getUserById(id);
+        User existingUser = userPublicService.getUserById(id);
 
-        User updatedUser = userService.updateUser(id, existingUser);
+        User updatedUser = userPublicService.updateUser(id, existingUser);
 
         return UserReadDTO.fromEntity(updatedUser);
     }
 
     @DeleteMapping("/{id}")
     public void deleteUser(@PathVariable UUID id) {
-        userService.deleteUser(id);
+        userPublicService.deleteUser(id);
     }
 }

@@ -8,14 +8,12 @@ import java.util.List;
 import java.util.UUID;
 
 @Data
-@NoArgsConstructor
-@AllArgsConstructor
 @Builder
 public class CustomerOrderReadDTO {
     private UUID id;
-    private CustomerInfo customerInfo;
+    private CustomerInfoDTO customerInfo;
     private OrderType orderType;
-    private Status status;
+    private OrderStatus status;
     private List<OrderItemReadDTO> orderItems;
     private double totalPrice;
     private LocalDateTime createdAt;
@@ -24,7 +22,7 @@ public class CustomerOrderReadDTO {
     public static CustomerOrderReadDTO fromEntity(CustomerOrder o) {
         return CustomerOrderReadDTO.builder()
                 .id(o.getId())
-                .customerInfo(o.getCustomerInfo())
+                .customerInfo(CustomerInfoDTO.fromEntity(o.getCustomerInfo()))
                 .orderType(o.getOrderType())
                 .status(o.getStatus())
                 .orderItems(o.getOrderItems().stream()

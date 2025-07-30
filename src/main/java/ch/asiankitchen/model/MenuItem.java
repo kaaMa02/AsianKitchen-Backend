@@ -7,29 +7,32 @@ import lombok.*;
 import java.util.UUID;
 
 @Entity
+@Table(name = "menu_item")
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
 public class MenuItem {
-
     @Id
     @GeneratedValue
-    @Column(columnDefinition = "BINARY(16)")
+    @Column(columnDefinition = "UUID")
     private UUID id;
 
     @NotNull
-    @ManyToOne
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "food_item_id", nullable = false)
     private FoodItem foodItem;
 
     @NotNull
     @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
     private MenuItemCategory category;
 
+    @Column(nullable = false)
     private boolean available = true;
 
     @NotNull
     @PositiveOrZero
-    private double price;
+    @Column(nullable = false)
+    private Double price;
 }

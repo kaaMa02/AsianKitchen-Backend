@@ -1,79 +1,73 @@
 package ch.asiankitchen.service;
 
-import ch.asiankitchen.dto.UserReadDTO;
-import ch.asiankitchen.dto.UserWriteDTO;
+import ch.asiankitchen.dto.*;
+import ch.asiankitchen.exception.ResourceNotFoundException;
 import ch.asiankitchen.model.User;
 import ch.asiankitchen.repository.UserRepository;
-import jakarta.transaction.Transactional;
+import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
+@RequiredArgsConstructor
 public class UserService {
+    private final UserRepository repo;
+    private final PasswordEncoder encoder;
 
-    private final UserRepository userRepository;
-    private final PasswordEncoder passwordEncoder;
-
-    public UserService(UserRepository userRepository, PasswordEncoder passwordEncoder) {
-        this.userRepository = userRepository;
-        this.passwordEncoder = passwordEncoder;
-    }
-
-    public List<UserReadDTO> getAllUsers() {
-        return userRepository.findAll()
-                .stream()
+    @Transactional(readOnly=true)
+    public List<UserReadDTO> listAll() {
+        return repo.findAll().stream()
                 .map(UserReadDTO::fromEntity)
-                .toList();
+                .collect(Collectors.toList());
     }
 
-    public User getUserById(UUID id) {
-        return userRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("User not found: " + id));
-    }
-
-    public UserReadDTO getUserDtoById(UUID id) {
-        return userRepository.findById(id)
+    @Transactional(readOnly=true)
+    public UserReadDTO getById(UUID id) {
+        return repo.findById(id)
                 .map(UserReadDTO::fromEntity)
-                .orElseThrow(() -> new RuntimeException("User not found: " + id));
-    }
-
-    public UserReadDTO createUser(UserWriteDTO dto) {
-        User user = dto.toEntity();
-        user.setCreatedAt(LocalDateTime.now());
-        user.setPassword(passwordEncoder.encode(user.getPassword()));
-
-        User savedUser = userRepository.save(user);
-        return UserReadDTO.fromEntity(savedUser);
+                .orElse(null);
     }
 
     @Transactional
-    public User updateUser(UUID id, User updatedUser) {
-        User existing = getUserById(id);
+    public UserReadDTO create(UserWriteDTO dto) {
+        User entity = dto.toEntity();
+        return UserReadDTO.fromEntity(repo.save(entity));
+    }
 
-        existing.setUsername(updatedUser.getUsername());
-        existing.setRole(updatedUser.getRole());
-        existing.setFirstName(updatedUser.getFirstName());
-        existing.setLastName(updatedUser.getLastName());
-        existing.setEmail(updatedUser.getEmail());
-        existing.setPhoneNumber(updatedUser.getPhoneNumber());
-        existing.setAddress(updatedUser.getAddress());
+    @Transactional(readOnly = true)
+    public UserReadDTO getProfile(UUID userId) {
+        return repo.findById(userId)
+                .map(UserReadDTO::fromEntity)
+                .orElseThrow(() -> new ResourceNotFoundException("User", userId));
+    }
 
-        if (updatedUser.getPassword() != null && !updatedUser.getPassword().isEmpty()) {
-            existing.setPassword(passwordEncoder.encode(updatedUser.getPassword()));
+    @Transactional
+    public UserReadDTO updateProfile(UUID userId, UserProfileUpdateDTO dto) {
+        var user = repo.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User", userId));
+        user.setFirstName(dto.getFirstName());
+        user.setLastName(dto.getLastName());
+        user.setEmail(dto.getEmail());
+        user.setPhoneNumber(dto.getPhoneNumber());
+        user.setAddress(new ch.asiankitchen.model.Address(
+                dto.getAddress().getStreet(),
+                dto.getAddress().getStreetNo(),
+                dto.getAddress().getPlz(),
+                dto.getAddress().getCity()
+        ));
+        if (dto.getPassword() != null && !dto.getPassword().isBlank()) {
+            user.setPassword(encoder.encode(dto.getPassword()));
         }
-
-        return userRepository.save(existing);
+        return UserReadDTO.fromEntity(repo.save(user));
     }
 
-    public void deleteUser(UUID id) {
-        userRepository.deleteById(id);
-    }
-
-    public boolean existsByUsername(String username) {
-        return userRepository.findByUsername(username).isPresent();
+    @Transactional
+    public void delete(UUID id) {
+        repo.deleteById(id);
     }
 }

@@ -9,45 +9,59 @@ import java.util.List;
 import java.util.UUID;
 
 @Entity
+@Table(name = "buffet_order")
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
 public class BuffetOrder {
-
     @Id
     @GeneratedValue
-    @Column(columnDefinition = "BINARY(16)")
+    @Column(columnDefinition = "UUID")
     private UUID id;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "user_id", nullable = true)
+    @JoinColumn(name = "user_id")
     private User user;
 
     @Embedded
     private CustomerInfo customerInfo;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
+    @Column(name = "order_type", nullable = false)
     private OrderType orderType;
 
+    @Lob
+    @Column(name = "special_instructions")
+    private String specialInstructions;
+
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
-    private Status status;
+    @Column(name = "status", nullable = false)
+    private OrderStatus status;
+
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private LocalDateTime createdAt;
+
+    @Column(name = "total_price", nullable = false)
+    private Double totalPrice;
 
     @OneToMany(mappedBy = "buffetOrder", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<BuffetOrderItem> buffetOrderItems = new ArrayList<>();
 
-    @Column(nullable = false, updatable = false)
-    private LocalDateTime createdAt;
-
-    private double totalPrice;
-
-    @Lob
-    private String specialInstructions;
-
     @PrePersist
-    public void prePersist() {
+    public void onCreate() {
         this.createdAt = LocalDateTime.now();
+        recalcTotal();
+    }
+
+    @PreUpdate
+    public void onUpdate() {
+        recalcTotal();
+    }
+
+    private void recalcTotal() {
+        this.totalPrice = buffetOrderItems.stream()
+                .mapToDouble(item -> item.getQuantity() * item.getBuffetItem().getPrice())
+                .sum();
     }
 }

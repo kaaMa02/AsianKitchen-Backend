@@ -1,40 +1,42 @@
 package ch.asiankitchen.controller.admin;
 
 import ch.asiankitchen.dto.ReservationReadDTO;
-import ch.asiankitchen.model.Reservation;
-import ch.asiankitchen.model.Status;
-import ch.asiankitchen.repository.ReservationRepository;
+import ch.asiankitchen.model.ReservationStatus;
+import ch.asiankitchen.service.ReservationService;
+import org.springframework.http.HttpStatus;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
-import java.util.*;
+
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/admin/reservations")
+@PreAuthorize("hasRole('ADMIN')")
 public class ReservationAdminController {
+    private final ReservationService service;
 
-    private final ReservationRepository repo;
-
-    public ReservationAdminController(ReservationRepository repo) {
-        this.repo = repo;
+    public ReservationAdminController(ReservationService service) {
+        this.service = service;
     }
 
     @GetMapping
-    public List<ReservationReadDTO> all() {
-        return repo.findAll()
-                .stream()
-                .map(ReservationReadDTO::fromEntity)
-                .toList();
+    public List<ReservationReadDTO> listAll() {
+        return service.listAll();
     }
 
-    @PutMapping("/{id}/status")
-    public ReservationReadDTO updateStatus(@PathVariable UUID id, @RequestBody Status status) {
-        Reservation r = repo.findById(id)
-                .orElseThrow(() -> new RuntimeException("Reservation not found"));
-        r.setStatus(status);
-        return ReservationReadDTO.fromEntity(repo.save(r));
+    @PatchMapping("/{id}/status")
+    public ReservationReadDTO updateStatus(
+            @PathVariable UUID id,
+            @RequestBody Map<String,String> body) {
+        ReservationStatus status = ReservationStatus.valueOf(body.get("status"));
+        return service.updateStatus(id, status);
     }
 
     @DeleteMapping("/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(@PathVariable UUID id) {
-        repo.deleteById(id);
+        service.delete(id);
     }
 }

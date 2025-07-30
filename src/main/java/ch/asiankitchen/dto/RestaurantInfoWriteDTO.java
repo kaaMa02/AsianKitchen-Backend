@@ -2,16 +2,13 @@ package ch.asiankitchen.dto;
 
 import ch.asiankitchen.model.Address;
 import ch.asiankitchen.model.RestaurantInfo;
-import jakarta.validation.constraints.Email;
-import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.*;
 import lombok.*;
 
 @Data
-@NoArgsConstructor
-@AllArgsConstructor
 @Builder
 public class RestaurantInfoWriteDTO {
-
     @NotBlank
     private String name;
 
@@ -27,7 +24,8 @@ public class RestaurantInfoWriteDTO {
     private String googleMapsUrl;
     private String openingHours;
 
-    private Address address;
+    @Valid
+    private AddressDTO address;
 
     public RestaurantInfo toEntity() {
         return RestaurantInfo.builder()
@@ -38,7 +36,11 @@ public class RestaurantInfoWriteDTO {
                 .instagramUrl(instagramUrl)
                 .googleMapsUrl(googleMapsUrl)
                 .openingHours(openingHours)
-                .address(address)
+                .address(new Address(
+                        address.getStreet(),
+                        address.getStreetNo(),
+                        address.getPlz(),
+                        address.getCity()))
                 .build();
     }
 }

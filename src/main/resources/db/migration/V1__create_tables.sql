@@ -29,8 +29,10 @@ CREATE TABLE restaurant_info (
                                  phone VARCHAR(50),
                                  instagram_url VARCHAR(255),
                                  google_maps_url VARCHAR(255),
-                                 opening_hours TEXT
+                                 opening_hours TEXT,
+                                 created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
+
 
 -- 3) FOOD_ITEM
 CREATE TABLE food_item (
@@ -55,24 +57,22 @@ CREATE TABLE menu_item (
 CREATE TABLE buffet_item (
                              id UUID PRIMARY KEY,
                              food_item_id UUID NOT NULL REFERENCES food_item(id) ON DELETE CASCADE ON UPDATE CASCADE,
-                             available BOOLEAN NOT NULL
+                             available BOOLEAN NOT NULL,
+                             price DECIMAL(10,2) NOT NULL DEFAULT 0
 );
 
 -- 6) ORDER
 CREATE TABLE orders (
                         id UUID PRIMARY KEY,
                         user_id UUID REFERENCES users(id),
-                        first_name VARCHAR(255),
-                        last_name VARCHAR(255),
-                        email VARCHAR(255),
-                        phone VARCHAR(50),
-                        street VARCHAR(255),
-                        street_no VARCHAR(50),
-                        plz VARCHAR(50),
-                        city VARCHAR(255),
+                        first_name VARCHAR(255), last_name VARCHAR(255),
+                        email VARCHAR(255), phone VARCHAR(50),
+                        street VARCHAR(255), street_no VARCHAR(50),
+                        plz VARCHAR(50), city VARCHAR(255),
                         order_type VARCHAR(50) NOT NULL,
                         special_instructions TEXT,
                         status VARCHAR(50) NOT NULL,
+                        total_price DECIMAL(10,2) NOT NULL DEFAULT 0,
                         created_at TIMESTAMP NOT NULL,
                         deleted_at TIMESTAMP
 );
@@ -100,6 +100,7 @@ CREATE TABLE buffet_order (
                               order_type VARCHAR(50) NOT NULL,
                               special_instructions TEXT,
                               status VARCHAR(50) NOT NULL,
+                              total_price DECIMAL(10,2) NOT NULL DEFAULT 0,
                               created_at TIMESTAMP NOT NULL
 );
 

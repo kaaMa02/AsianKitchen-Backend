@@ -2,68 +2,59 @@ package ch.asiankitchen.controller.admin;
 
 import ch.asiankitchen.dto.MenuItemDTO;
 import ch.asiankitchen.dto.MenuItemWriteDTO;
-import ch.asiankitchen.model.FoodItem;
-import ch.asiankitchen.model.MenuItem;
-import ch.asiankitchen.repository.FoodItemRepository;
-import ch.asiankitchen.repository.MenuItemRepository;
+import ch.asiankitchen.service.MenuItemService;
 import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
+import java.net.URI;
 import java.util.List;
 import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/admin/menu-items")
+@PreAuthorize("hasRole('ADMIN')")
 public class MenuItemAdminController {
+    private final MenuItemService service;
 
-    private final MenuItemRepository menuRepo;
-    private final FoodItemRepository foodRepo;
-
-    public MenuItemAdminController(MenuItemRepository menuRepo, FoodItemRepository foodRepo) {
-        this.menuRepo = menuRepo;
-        this.foodRepo = foodRepo;
-    }
-
-    @GetMapping
-    public List<MenuItemDTO> getAllMenuItems() {
-        return menuRepo.findAll().stream()
-                .map(MenuItemDTO::fromEntity)
-                .toList();
+    public MenuItemAdminController(MenuItemService service) {
+        this.service = service;
     }
 
     @PostMapping
-    public MenuItemDTO createMenuItem(@Valid @RequestBody MenuItemWriteDTO dto) {
-        FoodItem foodItem = foodRepo.findById(dto.getFoodItemId())
-        .orElseThrow(() -> new IllegalArgumentException("Food item not found"));
+    public ResponseEntity<MenuItemDTO> create(
+            @Valid @RequestBody MenuItemWriteDTO dto) {
+        MenuItemDTO created = service.create(dto);
+        URI location = ServletUriComponentsBuilder.fromCurrentRequest()
+                .path("/{id}")
+                .buildAndExpand(created.getId())
+                .toUri();
+        return ResponseEntity.created(location).body(created);
+    }
 
-        MenuItem menuItem = MenuItem.builder()
-                .foodItem(foodItem)
-                .category(dto.getCategory())
-                .available(dto.isAvailable())
-                .price(dto.getPrice())
-                .build();
+    @GetMapping
+    public List<MenuItemDTO> list() {
+        return service.listAll();
+    }
 
-        return MenuItemDTO.fromEntity(menuRepo.save(menuItem));
+    @GetMapping("/{id}")
+    public MenuItemDTO getById(@PathVariable UUID id) {
+        return service.getById(id);
     }
 
     @PutMapping("/{id}")
-    public MenuItemDTO update(@PathVariable UUID id, @Valid @RequestBody MenuItemWriteDTO dto) {
-        MenuItem item = menuRepo.findById(id)
-                .orElseThrow(() -> new RuntimeException("Menu item not found"));
-
-        FoodItem food = foodRepo.findById(dto.getFoodItemId())
-                .orElseThrow(() -> new RuntimeException("Food item not found"));
-
-        item.setFoodItem(food);
-        item.setCategory(dto.getCategory());
-        item.setAvailable(dto.isAvailable());
-        item.setPrice(dto.getPrice());
-
-        return MenuItemDTO.fromEntity(menuRepo.save(item));
+    public MenuItemDTO update(
+            @PathVariable UUID id,
+            @Valid @RequestBody MenuItemWriteDTO dto) {
+        return service.update(id, dto);
     }
 
     @DeleteMapping("/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(@PathVariable UUID id) {
-        menuRepo.deleteById(id);
+        service.delete(id);
     }
 }

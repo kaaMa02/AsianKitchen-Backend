@@ -8,16 +8,16 @@ import java.util.List;
 import java.util.UUID;
 
 @Entity
+@Table(name = "orders")
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-@Table(name = "customer_order")
 public class CustomerOrder {
 
     @Id
     @GeneratedValue
-    @Column(columnDefinition = "BINARY(16)")
+    @Column(columnDefinition = "UUID")
     private UUID id;
 
     @ManyToOne(fetch = FetchType.LAZY)
@@ -27,21 +27,28 @@ public class CustomerOrder {
     @Embedded
     private CustomerInfo customerInfo;
 
-    @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OneToMany(mappedBy = "customerOrder", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<OrderItem> orderItems = new ArrayList<>();
 
     @Enumerated(EnumType.STRING)
+    @Column(name = "status", nullable = false)
     private OrderType orderType;
 
     @Enumerated(EnumType.STRING)
-    private Status status;
+    private OrderStatus status;
 
-    private double totalPrice;
-    private LocalDateTime createdAt;
-    private LocalDateTime deletedAt;
+    @Column(name = "total_price")
+    private Double totalPrice;
 
     @Lob
+    @Column(name = "special_instructions")
     private String specialInstructions;
+
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private LocalDateTime createdAt;
+
+    @Column(name = "deleted_at")
+    private LocalDateTime deletedAt;
 
     @PrePersist
     protected void onCreate() {

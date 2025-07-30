@@ -1,40 +1,38 @@
 package ch.asiankitchen.service;
 
-import ch.asiankitchen.dto.UserReadDTO;
-import ch.asiankitchen.dto.UserWriteDTO;
-import ch.asiankitchen.model.Role;
-import ch.asiankitchen.model.User;
+import ch.asiankitchen.dto.*;
+import ch.asiankitchen.exception.UsernameAlreadyExistsException;
+import ch.asiankitchen.model.*;
 import ch.asiankitchen.repository.UserRepository;
-import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
-import org.springframework.web.server.ResponseStatusException;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class AuthService {
 
-    private final UserRepository userRepository;
-    private final PasswordEncoder passwordEncoder;
+    private final UserRepository repo;
+    private final PasswordEncoder encoder;
 
-    public AuthService(UserRepository userRepository, PasswordEncoder passwordEncoder) {
-        this.userRepository = userRepository;
-        this.passwordEncoder = passwordEncoder;
+    public AuthService(UserRepository repo, PasswordEncoder encoder) {
+        this.repo = repo;
+        this.encoder = encoder;
     }
 
-    public UserReadDTO registerCustomer(UserWriteDTO userDto) {
-        return getUserReadDTO(userDto, userRepository, passwordEncoder);
-    }
-
-    public static UserReadDTO getUserReadDTO(UserWriteDTO userDto, UserRepository userRepository, PasswordEncoder passwordEncoder) {
-        if (userRepository.findByUsername(userDto.username()).isPresent()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Username already exists");
+    @Transactional
+    public UserReadDTO register(RegisterRequestDTO dto) {
+        if (repo.existsByUsername(dto.getUsername())) {
+            throw new UsernameAlreadyExistsException(dto.getUsername());
         }
-
-        User newUser = userDto.toEntity();
-        newUser.setPassword(passwordEncoder.encode(userDto.password()));
-        newUser.setRole(Role.CUSTOMER); // All registrants are customers
-
-        User savedUser = userRepository.save(newUser);
-        return UserReadDTO.fromEntity(savedUser);
+        User user = User.builder()
+                .username(dto.getUsername())
+                .password(encoder.encode(dto.getPassword()))
+                .firstName(dto.getFirstName())
+                .lastName(dto.getLastName())
+                .email(dto.getEmail())
+                .phoneNumber(dto.getPhoneNumber())
+                .role(Role.CUSTOMER)
+                .build();
+        return UserReadDTO.fromEntity(repo.save(user));
     }
 }

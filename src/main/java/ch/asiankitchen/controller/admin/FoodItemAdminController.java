@@ -1,60 +1,58 @@
 package ch.asiankitchen.controller.admin;
 
 import ch.asiankitchen.dto.FoodItemDTO;
-import ch.asiankitchen.model.FoodItem;
-import ch.asiankitchen.repository.FoodItemRepository;
+import ch.asiankitchen.service.FoodItemService;
 import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
+import java.net.URI;
 import java.util.List;
 import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/admin/food-items")
+@PreAuthorize("hasRole('ADMIN')")
 public class FoodItemAdminController {
+    private final FoodItemService service;
 
-    private final FoodItemRepository foodItemRepository;
+    public FoodItemAdminController(FoodItemService service) {
+        this.service = service;
+    }
 
-    public FoodItemAdminController(FoodItemRepository foodItemRepository) {
-        this.foodItemRepository = foodItemRepository;
+    @PostMapping
+    public ResponseEntity<FoodItemDTO> create(@Valid @RequestBody FoodItemDTO dto) {
+        FoodItemDTO created = service.create(dto);
+        URI location = ServletUriComponentsBuilder.fromCurrentRequest()
+                .path("/{id}")
+                .buildAndExpand(created.getId())
+                .toUri();
+        return ResponseEntity.created(location).body(created);
     }
 
     @GetMapping
-    public List<FoodItemDTO> getAll() {
-        return foodItemRepository.findAll().stream()
-                .map(FoodItemDTO::fromEntity)
-                .toList();
+    public List<FoodItemDTO> list() {
+        return service.listAll();
     }
 
     @GetMapping("/{id}")
     public FoodItemDTO getById(@PathVariable UUID id) {
-        FoodItem item = foodItemRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Food item not found: " + id));
-        return FoodItemDTO.fromEntity(item);
-    }
-
-    @PostMapping
-    public FoodItemDTO create(@Valid @RequestBody FoodItemDTO dto) {
-        FoodItem saved = foodItemRepository.save(dto.toEntity());
-        return FoodItemDTO.fromEntity(saved);
+        return service.getById(id);
     }
 
     @PutMapping("/{id}")
-    public FoodItemDTO update(@PathVariable UUID id, @Valid @RequestBody FoodItemDTO dto) {
-        FoodItem existing = foodItemRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Food item not found"));
-
-        existing.setName(dto.getName());
-        existing.setDescription(dto.getDescription());
-        existing.setIngredients(dto.getIngredients());
-        existing.setAllergies(dto.getAllergies());
-        existing.setImageUrl(dto.getImageUrl());
-
-        return FoodItemDTO.fromEntity(foodItemRepository.save(existing));
+    public FoodItemDTO update(
+            @PathVariable UUID id,
+            @Valid @RequestBody FoodItemDTO dto) {
+        return service.update(id, dto);
     }
 
     @DeleteMapping("/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(@PathVariable UUID id) {
-        foodItemRepository.deleteById(id);
+        service.delete(id);
     }
 }

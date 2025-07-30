@@ -1,35 +1,33 @@
 package ch.asiankitchen.dto;
 
-import ch.asiankitchen.model.Address;
-import ch.asiankitchen.model.CustomerInfo;
 import ch.asiankitchen.model.Reservation;
-import ch.asiankitchen.model.Status;
+import ch.asiankitchen.model.ReservationStatus;
 import jakarta.validation.constraints.*;
+import lombok.*;
 
 import java.time.LocalDateTime;
 
-public record ReservationWriteDTO(
-        @NotBlank String firstName,
-        @NotBlank String lastName,
-        @Email String email,
-        @NotBlank String phone,
-        @NotBlank String street,
-        @NotBlank String streetNo,
-        @NotBlank String plz,
-        @NotBlank String city,
-        @NotNull LocalDateTime reservationDateTime,
-        @Min(1) int numberOfPeople,
-        String specialRequests
-) {
+@Data
+@Builder
+public class ReservationWriteDTO {
+    @NotNull
+    private CustomerInfoDTO customerInfo;
+
+    @NotNull
+    private LocalDateTime reservationDateTime;
+
+    @Min(1)
+    private int numberOfPeople;
+
+    private String specialRequests;
+
     public Reservation toEntity() {
-        Address address = new Address(street, streetNo, plz, city);
-        CustomerInfo customerInfo = new CustomerInfo(firstName, lastName, email, phone, address);
         return Reservation.builder()
-                .customerInfo(customerInfo)
+                .customerInfo(CustomerInfoDTO.toEntity(customerInfo))
                 .reservationDateTime(reservationDateTime)
                 .numberOfPeople(numberOfPeople)
                 .specialRequests(specialRequests)
-                .status(Status.RESERVATION_REQUEST_SENT)
+                .status(ReservationStatus.REQUESTED)
                 .build();
     }
 }

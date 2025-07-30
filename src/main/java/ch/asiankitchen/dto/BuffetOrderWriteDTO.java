@@ -1,21 +1,25 @@
 package ch.asiankitchen.dto;
 
-import ch.asiankitchen.model.*;
+import ch.asiankitchen.model.BuffetOrder;
+import ch.asiankitchen.model.OrderType;
+import ch.asiankitchen.model.User;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.*;
+import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.NotNull;
+import lombok.Builder;
 import lombok.Data;
 
 import java.util.List;
 import java.util.UUID;
 
 @Data
+@Builder
 public class BuffetOrderWriteDTO {
-
     private UUID userId;
 
     @NotNull
     @Valid
-    private CustomerInfo customerInfo;
+    private CustomerInfoDTO customerInfo;
 
     @NotNull
     private OrderType orderType;
@@ -24,37 +28,21 @@ public class BuffetOrderWriteDTO {
 
     @NotEmpty
     @Valid
-    private List<BuffetOrderItemDTO> buffetOrderItems;
-
-    private double totalPrice;
+    private List<BuffetOrderItemDTO> items;
 
     public BuffetOrder toEntity() {
-        BuffetOrder order = new BuffetOrder();
-        order.setUser(userId != null ? User.builder().id(userId).build() : null);
-        order.setCustomerInfo(customerInfo);
+        var order = new BuffetOrder();
+        if (userId != null) {
+            order.setUser(User.builder().id(userId).build());
+        }
+        order.setCustomerInfo(CustomerInfoDTO.toEntity(customerInfo));
         order.setOrderType(orderType);
         order.setSpecialInstructions(specialInstructions);
-        order.setTotalPrice(totalPrice);
-        order.setBuffetOrderItems(
-                buffetOrderItems.stream().map(BuffetOrderItemDTO::toEntity).toList()
-        );
+        order.setBuffetOrderItems(items.stream().map(dto -> {
+            var item = dto.toEntity();
+            item.setBuffetOrder(order);
+            return item;
+        }).toList());
         return order;
-    }
-
-    @Data
-    public static class BuffetOrderItemDTO {
-
-        @NotNull
-        private UUID buffetItemId;
-
-        @Min(1)
-        private int quantity;
-
-        public BuffetOrderItem toEntity() {
-            return BuffetOrderItem.builder()
-                    .buffetItem(BuffetItem.builder().id(buffetItemId).build())
-                    .quantity(quantity)
-                    .build();
-        }
     }
 }

@@ -6,34 +6,40 @@ import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Entity
+@Table(name = "reservation")
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
 public class Reservation {
-
     @Id
     @GeneratedValue
-    @Column(columnDefinition = "BINARY(16)")
+    @Column(columnDefinition = "UUID")
     private UUID id;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "user_id", nullable = true)
+    @JoinColumn(name = "user_id")
     private User user;
 
     @Embedded
     private CustomerInfo customerInfo;
 
+    @Column(name = "reservation_date_time", nullable = false)
     private LocalDateTime reservationDateTime;
+
+    @Column(name = "number_of_people", nullable = false)
     private int numberOfPeople;
 
     @Lob
+    @Column(name = "special_requests")
     private String specialRequests;
 
-    private LocalDateTime createdAt;
-
     @Enumerated(EnumType.STRING)
-    private Status status;
+    @Column(name = "status", nullable = false)
+    private ReservationStatus status;
+
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private LocalDateTime createdAt;
 
     @PrePersist
     public void prePersist() {

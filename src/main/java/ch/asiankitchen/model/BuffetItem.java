@@ -1,11 +1,7 @@
 package ch.asiankitchen.model;
 
 import jakarta.persistence.*;
-import jakarta.validation.constraints.NotNull;
 import lombok.*;
-import org.hibernate.annotations.CreationTimestamp;
-
-import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Entity
@@ -15,19 +11,18 @@ import java.util.UUID;
 @AllArgsConstructor
 @Builder
 public class BuffetItem {
-
     @Id
     @GeneratedValue
-    @Column(columnDefinition = "BINARY(16)")
+    @Column(columnDefinition = "UUID")
     private UUID id;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "food_item_id")
+    @JoinColumn(name = "food_item_id", nullable = false)
     private FoodItem foodItem;
 
-    @CreationTimestamp
-    @Column(nullable = false, updatable = false)
-    private LocalDateTime createdAt;
-
+    @Column(nullable = false)
     private boolean available;
+
+    @Column(nullable = false)
+    private Double price;
 }

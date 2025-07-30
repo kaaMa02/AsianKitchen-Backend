@@ -2,84 +2,54 @@ package ch.asiankitchen.controller.admin;
 
 import ch.asiankitchen.dto.BuffetItemReadDTO;
 import ch.asiankitchen.dto.BuffetItemWriteDTO;
-import ch.asiankitchen.model.BuffetItem;
-import ch.asiankitchen.model.FoodItem;
-import ch.asiankitchen.repository.BuffetItemRepository;
-import ch.asiankitchen.repository.FoodItemRepository;
+import ch.asiankitchen.service.BuffetItemService;
+import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
+import java.net.URI;
 import java.util.List;
 import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/admin/buffet-items")
+@PreAuthorize("hasRole('ADMIN')")
 public class BuffetItemAdminController {
+    private final BuffetItemService service;
 
-    private final BuffetItemRepository buffetItemRepository;
-    private final FoodItemRepository foodItemRepository;
-
-    public BuffetItemAdminController(BuffetItemRepository buffetItemRepository,
-                                     FoodItemRepository foodItemRepository) {
-        this.buffetItemRepository = buffetItemRepository;
-        this.foodItemRepository = foodItemRepository;
-    }
-
-    @GetMapping
-    public List<BuffetItemReadDTO> getAllBuffetItems() {
-        return buffetItemRepository.findAll()
-                .stream()
-                .map(item -> BuffetItemReadDTO.builder()
-                        .id(item.getId())
-                        .available(item.isAvailable())
-                        .foodItemId(item.getFoodItem().getId())
-                        .foodItemName(item.getFoodItem().getName())
-                        .build())
-                .toList();
+    public BuffetItemAdminController(BuffetItemService service) {
+        this.service = service;
     }
 
     @PostMapping
-    public BuffetItemReadDTO createBuffetItem(@RequestBody BuffetItemWriteDTO dto) {
-        FoodItem foodItem = foodItemRepository.findById(dto.getFoodItemId())
-                .orElseThrow(() -> new RuntimeException("Food item not found"));
+    public ResponseEntity<BuffetItemReadDTO> create(
+            @Valid @RequestBody BuffetItemWriteDTO dto) {
+        BuffetItemReadDTO created = service.create(dto);
+        URI location = ServletUriComponentsBuilder.fromCurrentRequest()
+                .path("/{id}")
+                .buildAndExpand(created.getId())
+                .toUri();
+        return ResponseEntity.created(location).body(created);
+    }
 
-        BuffetItem buffetItem = BuffetItem.builder()
-                .available(dto.isAvailable())
-                .foodItem(foodItem)
-                .build();
-
-        BuffetItem saved = buffetItemRepository.save(buffetItem);
-
-        return BuffetItemReadDTO.builder()
-                .id(saved.getId())
-                .available(saved.isAvailable())
-                .foodItemId(foodItem.getId())
-                .foodItemName(foodItem.getName())
-                .build();
+    @GetMapping
+    public List<BuffetItemReadDTO> list() {
+        return service.listAll();
     }
 
     @PutMapping("/{id}")
-    public BuffetItemReadDTO updateBuffetItem(@PathVariable UUID id, @RequestBody BuffetItemWriteDTO dto) {
-        BuffetItem existing = buffetItemRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("BuffetItem not found"));
-
-        FoodItem foodItem = foodItemRepository.findById(dto.getFoodItemId())
-                .orElseThrow(() -> new RuntimeException("Food item not found"));
-
-        existing.setAvailable(dto.isAvailable());
-        existing.setFoodItem(foodItem);
-
-        BuffetItem saved = buffetItemRepository.save(existing);
-
-        return BuffetItemReadDTO.builder()
-                .id(saved.getId())
-                .available(saved.isAvailable())
-                .foodItemId(foodItem.getId())
-                .foodItemName(foodItem.getName())
-                .build();
+    public BuffetItemReadDTO update(
+            @PathVariable UUID id,
+            @Valid @RequestBody BuffetItemWriteDTO dto) {
+        return service.update(id, dto);
     }
 
     @DeleteMapping("/{id}")
-    public void deleteBuffetItem(@PathVariable UUID id) {
-        buffetItemRepository.deleteById(id);
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void delete(@PathVariable UUID id) {
+        service.delete(id);
     }
 }
