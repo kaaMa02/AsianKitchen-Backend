@@ -1,12 +1,19 @@
 package ch.asiankitchen.controller.admin;
 
+import ch.asiankitchen.dto.UserProfileUpdateDTO;
 import ch.asiankitchen.dto.UserReadDTO;
 import ch.asiankitchen.dto.UserWriteDTO;
 import ch.asiankitchen.model.User;
+import ch.asiankitchen.service.UserService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import jakarta.validation.Valid;
+import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
+
+import java.net.URI;
 import java.util.List;
 import java.util.UUID;
 
@@ -15,34 +22,41 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class UserAdminController {
 
-    private final UserAd userPublicService;
+    private final UserService userService;
 
     @GetMapping
     public List<UserReadDTO> getAllUsers() {
-        return userPublicService.getAllUsers();
+        return userService.listAll();
     }
 
     @GetMapping("/{id}")
     public UserReadDTO getUserById(@PathVariable UUID id) {
-        return userPublicService.getUserDtoById(id);
+        return userService.getById(id);
     }
 
     @PostMapping
-    public UserReadDTO createUser(@Valid @RequestBody UserWriteDTO userDto) {
-        return userPublicService.createUser(userDto);
+    public ResponseEntity<UserReadDTO> createUser(@Valid @RequestBody UserWriteDTO dto) {
+        UserReadDTO created = userService.create(dto);
+        // build Location: /api/admin/users/{id}
+        URI location = ServletUriComponentsBuilder.fromCurrentRequest()
+                .path("/{id}")
+                .buildAndExpand(created.getId())
+                .toUri();
+        return ResponseEntity
+                .created(location)
+                .body(created);
     }
 
     @PutMapping("/{id}")
-    public UserReadDTO updateUser(@PathVariable UUID id, @Valid @RequestBody UserWriteDTO userDto) {
-        User existingUser = userPublicService.getUserById(id);
-
-        User updatedUser = userPublicService.updateUser(id, existingUser);
-
-        return UserReadDTO.fromEntity(updatedUser);
+    public UserReadDTO updateUser(
+            @PathVariable UUID id,
+            @Valid @RequestBody UserProfileUpdateDTO dto) {
+        return userService.updateProfile(id, dto);
     }
 
     @DeleteMapping("/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteUser(@PathVariable UUID id) {
-        userPublicService.deleteUser(id);
+        userService.delete(id);
     }
 }

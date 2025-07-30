@@ -26,11 +26,11 @@ public class UserService {
                 .collect(Collectors.toList());
     }
 
-    @Transactional(readOnly=true)
+    @Transactional(readOnly = true)
     public UserReadDTO getById(UUID id) {
         return repo.findById(id)
                 .map(UserReadDTO::fromEntity)
-                .orElse(null);
+                .orElseThrow(() -> new ResourceNotFoundException("User", id));
     }
 
     @Transactional

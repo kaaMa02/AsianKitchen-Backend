@@ -50,7 +50,7 @@ public class RestaurantInfoService {
         existing.setInstagramUrl(dto.getInstagramUrl());
         existing.setGoogleMapsUrl(dto.getGoogleMapsUrl());
         existing.setOpeningHours(dto.getOpeningHours());
-        existing.setAddress(dto.getAddress().toEntity());  // if you have toEntity
+        existing.setAddress(dto.getAddress().toEntity());
         return RestaurantInfoReadDTO.fromEntity(repo.save(existing));
     }
 
