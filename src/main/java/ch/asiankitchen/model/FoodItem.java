@@ -23,13 +23,13 @@ public class FoodItem {
     @Column(nullable = false)
     private String name;
 
-    @Lob
+    @Column(columnDefinition = "TEXT")
     private String description;
 
-    @Lob
+    @Column(columnDefinition = "TEXT")
     private String ingredients;
 
-    @Lob
+    @Column(columnDefinition = "TEXT")
     private String allergies;
 
     @Size(max = 512)
