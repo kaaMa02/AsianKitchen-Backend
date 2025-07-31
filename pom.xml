@@ -21,7 +21,7 @@
 
 	<properties>
 		<java.version>17</java.version>
-		<flyway.version>11.10.3</flyway.version>
+		<flyway.version>10.15.0</flyway.version>
 		<lombok.version>1.18.32</lombok.version>
 		<maven-compiler-plugin.version>3.10.1</maven-compiler-plugin.version>
 	</properties>
@@ -46,6 +46,10 @@
 		</dependency>
 
 		<!-- Flyway migration -->
+		<dependency>
+			<groupId>org.flywaydb</groupId>
+			<artifactId>flyway-database-postgresql</artifactId>
+		</dependency>
 		<dependency>
 			<groupId>org.flywaydb</groupId>
 			<artifactId>flyway-core</artifactId>
