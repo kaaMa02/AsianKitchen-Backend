@@ -3,6 +3,8 @@ package ch.asiankitchen.model;
 import jakarta.persistence.*;
 import lombok.*;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -42,8 +44,8 @@ public class BuffetOrder {
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
-    @Column(name = "total_price", nullable = false)
-    private Double totalPrice;
+    @Column(name = "total_price", precision = 10, scale = 2, nullable = false)
+    private BigDecimal totalPrice;
 
     @OneToMany(mappedBy = "buffetOrder", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<BuffetOrderItem> buffetOrderItems = new ArrayList<>();
@@ -61,7 +63,13 @@ public class BuffetOrder {
 
     private void recalcTotal() {
         this.totalPrice = buffetOrderItems.stream()
-                .mapToDouble(item -> item.getQuantity() * item.getBuffetItem().getPrice())
-                .sum();
+                .map(item ->
+                        item.getBuffetItem()
+                                .getPrice()
+                                .multiply(BigDecimal.valueOf(item.getQuantity()))
+                )
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        this.totalPrice = this.totalPrice.setScale(2, RoundingMode.HALF_UP);
     }
 }

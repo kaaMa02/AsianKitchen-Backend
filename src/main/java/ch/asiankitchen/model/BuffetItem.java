@@ -2,6 +2,8 @@ package ch.asiankitchen.model;
 
 import jakarta.persistence.*;
 import lombok.*;
+
+import java.math.BigDecimal;
 import java.util.UUID;
 
 @Entity
@@ -23,6 +25,6 @@ public class BuffetItem {
     @Column(nullable = false)
     private boolean available;
 
-    @Column(nullable = false)
-    private Double price;
+    @Column(name = "price", precision = 10, scale = 2, nullable = false)
+    private BigDecimal price;
 }

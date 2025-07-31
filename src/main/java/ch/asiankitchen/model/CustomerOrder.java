@@ -2,6 +2,8 @@ package ch.asiankitchen.model;
 
 import jakarta.persistence.*;
 import lombok.*;
+
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -38,8 +40,8 @@ public class CustomerOrder {
     @Column(name = "status", nullable = false)
     private OrderStatus status;
 
-    @Column(name = "total_price")
-    private Double totalPrice;
+    @Column(name = "total_price", precision = 10, scale = 2)
+    private BigDecimal totalPrice;
 
     @Lob
     @Column(name = "special_instructions")

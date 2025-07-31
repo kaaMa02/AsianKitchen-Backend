@@ -4,6 +4,8 @@ import jakarta.persistence.*;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.PositiveOrZero;
 import lombok.*;
+
+import java.math.BigDecimal;
 import java.util.UUID;
 
 @Entity
@@ -33,6 +35,6 @@ public class MenuItem {
 
     @NotNull
     @PositiveOrZero
-    @Column(nullable = false)
-    private Double price;
+    @Column(name = "price", precision = 10, scale = 2, nullable = false)
+    private BigDecimal price;
 }
