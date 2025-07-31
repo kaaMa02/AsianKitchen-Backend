@@ -50,7 +50,7 @@ CREATE TABLE menu_item (
                            food_item_id UUID NOT NULL REFERENCES food_item(id) ON DELETE CASCADE ON UPDATE CASCADE,
                            category VARCHAR(50) NOT NULL,
                            available BOOLEAN NOT NULL,
-                           price double precision NOT NULL
+                           price DECIMAL(10, 2) NOT NULL
 );
 
 -- 5) BUFFET_ITEM
@@ -58,7 +58,7 @@ CREATE TABLE buffet_item (
                              id UUID PRIMARY KEY,
                              food_item_id UUID NOT NULL REFERENCES food_item(id) ON DELETE CASCADE ON UPDATE CASCADE,
                              available BOOLEAN NOT NULL,
-                             price double precision NOT NULL DEFAULT 0
+                             price DECIMAL(10,2) NOT NULL DEFAULT 0
 );
 
 -- 6) ORDER
@@ -72,7 +72,7 @@ CREATE TABLE orders (
                         order_type VARCHAR(50) NOT NULL,
                         special_instructions TEXT,
                         status VARCHAR(50) NOT NULL,
-                        total_price double precision NOT NULL DEFAULT 0,
+                        total_price DECIMAL(10,2) NOT NULL DEFAULT 0,
                         created_at TIMESTAMP NOT NULL,
                         deleted_at TIMESTAMP
 );
@@ -100,7 +100,7 @@ CREATE TABLE buffet_order (
                               order_type VARCHAR(50) NOT NULL,
                               special_instructions TEXT,
                               status VARCHAR(50) NOT NULL,
-                              total_price double precision NOT NULL DEFAULT 0,
+                              total_price DECIMAL(10,2) NOT NULL DEFAULT 0,
                               created_at TIMESTAMP NOT NULL
 );
 
