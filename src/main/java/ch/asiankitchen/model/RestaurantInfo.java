@@ -21,8 +21,7 @@ public class RestaurantInfo {
     @Column(nullable = false)
     private String name;
 
-    @Lob
-    @Column(name = "about_text")
+    @Column(name = "about_text", columnDefinition = "TEXT")
     private String aboutText;
 
     @Embedded
@@ -40,8 +39,7 @@ public class RestaurantInfo {
     @Column(name = "google_maps_url")
     private String googleMapsUrl;
 
-    @Lob
-    @Column(name = "opening_hours")
+    @Column(name = "opening_hours", columnDefinition = "TEXT")
     private String openingHours;
 
     @Column(name = "created_at", nullable = false, updatable = false)
