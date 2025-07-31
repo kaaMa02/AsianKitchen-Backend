@@ -30,8 +30,7 @@ public class Reservation {
     @Column(name = "number_of_people", nullable = false)
     private int numberOfPeople;
 
-    @Lob
-    @Column(name = "special_requests")
+    @Column(name = "special_requests", columnDefinition = "TEXT")
     private String specialRequests;
 
     @Enumerated(EnumType.STRING)

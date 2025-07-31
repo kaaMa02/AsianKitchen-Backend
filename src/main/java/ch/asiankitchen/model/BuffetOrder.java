@@ -33,8 +33,7 @@ public class BuffetOrder {
     @Column(name = "order_type", nullable = false)
     private OrderType orderType;
 
-    @Lob
-    @Column(name = "special_instructions")
+    @Column(name = "special_instructions", columnDefinition = "TEXT")
     private String specialInstructions;
 
     @Enumerated(EnumType.STRING)

@@ -43,8 +43,7 @@ public class CustomerOrder {
     @Column(name = "total_price", precision = 10, scale = 2)
     private BigDecimal totalPrice;
 
-    @Lob
-    @Column(name = "special_instructions")
+    @Column(name = "special_instructions", columnDefinition = "TEXT")
     private String specialInstructions;
 
     @Column(name = "created_at", nullable = false, updatable = false)
