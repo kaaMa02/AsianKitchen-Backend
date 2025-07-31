@@ -6,7 +6,8 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
 public record UserWriteDTO(
-        @NotBlank String username,
+        @NotBlank
+        String username,
         @Size(min = 6, message = "Password must be at least 6 characters")
         String password,
         Role role
