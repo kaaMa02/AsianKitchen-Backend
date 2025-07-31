@@ -7,6 +7,7 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.PositiveOrZero;
 import lombok.*;
 
+import java.math.BigDecimal;
 import java.util.UUID;
 
 @Data
@@ -20,7 +21,7 @@ public class MenuItemWriteDTO {
 
     @NotNull
     @PositiveOrZero
-    private Double price;
+    private BigDecimal price;
 
     public MenuItem toEntity() {
         return ch.asiankitchen.model.MenuItem.builder()

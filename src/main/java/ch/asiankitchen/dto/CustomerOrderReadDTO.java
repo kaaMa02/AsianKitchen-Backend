@@ -3,6 +3,7 @@ package ch.asiankitchen.dto;
 import ch.asiankitchen.model.*;
 import lombok.*;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -15,7 +16,7 @@ public class CustomerOrderReadDTO {
     private OrderType orderType;
     private OrderStatus status;
     private List<OrderItemReadDTO> orderItems;
-    private double totalPrice;
+    private BigDecimal totalPrice;
     private LocalDateTime createdAt;
     private String specialInstructions;
 

@@ -5,6 +5,7 @@ import jakarta.validation.constraints.PositiveOrZero;
 import lombok.Builder;
 import lombok.Data;
 
+import java.math.BigDecimal;
 import java.util.UUID;
 
 @Data
@@ -17,5 +18,5 @@ public class BuffetItemWriteDTO {
 
     @NotNull
     @PositiveOrZero
-    private Double price;
+    private BigDecimal price;
 }

@@ -5,6 +5,7 @@ import ch.asiankitchen.model.OrderStatus;
 import lombok.Builder;
 import lombok.Data;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -16,7 +17,7 @@ public class BuffetOrderReadDTO {
     private String customerEmail;
     private OrderStatus status;
     private LocalDateTime createdAt;
-    private Double totalPrice;
+    private BigDecimal totalPrice;
 
     public static BuffetOrderReadDTO fromEntity(BuffetOrder o) {
         var ci = o.getCustomerInfo();
