@@ -21,16 +21,16 @@
 
 	<properties>
 		<java.version>17</java.version>
-		<flyway.version>12.3.0</flyway.version>
+		<flyway.version>11.10.3</flyway.version>
 		<lombok.version>1.18.32</lombok.version>
 		<maven-compiler-plugin.version>3.10.1</maven-compiler-plugin.version>
 	</properties>
 
 	<dependencies>
-		<!-- Spring Boot starters -->
+		<!-- Spring Boot Starters -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-data-jpa</artifactId>
+			<artifactId>spring-boot-starter-web</artifactId>
 		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
@@ -38,14 +38,14 @@
 		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-web</artifactId>
+			<artifactId>spring-boot-starter-data-jpa</artifactId>
 		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-actuator</artifactId>
 		</dependency>
 
-		<!-- Flyway core at the version we chose -->
+		<!-- Flyway migration -->
 		<dependency>
 			<groupId>org.flywaydb</groupId>
 			<artifactId>flyway-core</artifactId>
@@ -58,14 +58,14 @@
 			<artifactId>spring-boot-starter-validation</artifactId>
 		</dependency>
 
-		<!-- PostgreSQL driver -->
+		<!-- Postgres driver -->
 		<dependency>
 			<groupId>org.postgresql</groupId>
 			<artifactId>postgresql</artifactId>
 			<scope>runtime</scope>
 		</dependency>
 
-		<!-- JWT support -->
+		<!-- JWT -->
 		<dependency>
 			<groupId>io.jsonwebtoken</groupId>
 			<artifactId>jjwt-api</artifactId>
@@ -92,7 +92,7 @@
 			<scope>provided</scope>
 		</dependency>
 
-		<!-- Devtools & test -->
+		<!-- Devtools & Testing -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-devtools</artifactId>
@@ -113,7 +113,7 @@
 
 	<build>
 		<plugins>
-			<!-- Java compiler -->
+			<!-- compile to Java 17 -->
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-compiler-plugin</artifactId>
@@ -130,7 +130,7 @@
 				</configuration>
 			</plugin>
 
-			<!-- Spring Boot repackage -->
+			<!-- spring-boot:repackage -->
 			<plugin>
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>
@@ -145,4 +145,5 @@
 			</plugin>
 		</plugins>
 	</build>
+
 </project>
