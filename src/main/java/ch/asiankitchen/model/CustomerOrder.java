@@ -31,7 +31,7 @@ public class CustomerOrder {
     private List<OrderItem> orderItems = new ArrayList<>();
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "status", nullable = false)
+    @Column(name = "order_type", nullable = false)
     private OrderType orderType;
 
     @Enumerated(EnumType.STRING)
