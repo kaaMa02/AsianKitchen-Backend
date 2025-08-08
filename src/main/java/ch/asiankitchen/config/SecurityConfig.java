@@ -1,6 +1,7 @@
 package ch.asiankitchen.config;
 
 import ch.asiankitchen.service.CustomUserDetailsService;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.*;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
@@ -20,6 +21,7 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 import org.springframework.web.cors.*;
 import org.springframework.web.filter.CorsFilter;
 
+import java.util.Arrays;
 import java.util.List;
 
 @Configuration
@@ -29,10 +31,26 @@ public class SecurityConfig {
     private final CustomUserDetailsService userDetailsService;
     private final JwtTokenProvider jwtTokenProvider;
 
+    @Value("${app.cors.allowed-origins:*}")
+    private String[] allowedOrigins;
+
     public SecurityConfig(CustomUserDetailsService userDetailsService,
                           JwtTokenProvider jwtTokenProvider) {
         this.userDetailsService = userDetailsService;
         this.jwtTokenProvider = jwtTokenProvider;
+    }
+
+
+    @Bean
+    CorsConfigurationSource corsConfigurationSource() {
+        var cors = new CorsConfiguration();
+        cors.setAllowedOrigins(Arrays.asList(allowedOrigins));
+        cors.setAllowedMethods(List.of("GET","POST","PUT","PATCH","DELETE","OPTIONS"));
+        cors.setAllowedHeaders(List.of("Authorization","Content-Type"));
+        cors.setAllowCredentials(true);
+        var source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", cors);
+        return source;
     }
 
     @Bean
@@ -62,6 +80,8 @@ public class SecurityConfig {
                 .authenticationProvider(daoAuthProvider())
                 .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class)
                 .authorizeHttpRequests(auth -> auth
+                        .requestMatchers("/actuator/health").permitAll()
+                        .requestMatchers("/api/payments/stripe/webhook").permitAll() // webhook
                         // allow registration & login
                         .requestMatchers(HttpMethod.POST, "/api/auth/register", "/api/auth/login").permitAll()
                         // public GET endpoints
@@ -70,6 +90,9 @@ public class SecurityConfig {
                                 "/api/buffet-items/**",
                                 "/api/restaurant-info/**"
                         ).permitAll()
+                        // public for contact + Stripe webhook
+                        .requestMatchers(HttpMethod.POST, "/api/contact").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/payments/webhook").permitAll()
                         // admin-only actuator
                         .requestMatchers("/actuator/**").hasRole("ADMIN")
                         // admin-only API

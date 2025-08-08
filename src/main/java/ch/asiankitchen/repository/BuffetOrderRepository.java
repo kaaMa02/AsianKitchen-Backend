@@ -14,4 +14,5 @@ public interface BuffetOrderRepository extends JpaRepository<BuffetOrder, UUID> 
     List<BuffetOrder> findByUserId(UUID userId);
     List<BuffetOrder> findByStatus(OrderStatus status);
     Optional<BuffetOrder> findByIdAndCustomerInfoEmail(UUID id, String email);
+    Optional<BuffetOrder> findByPaymentIntentId(String paymentIntentId);
 }

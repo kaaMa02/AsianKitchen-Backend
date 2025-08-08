@@ -49,10 +49,18 @@ public class BuffetOrder {
     @OneToMany(mappedBy = "buffetOrder", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<BuffetOrderItem> buffetOrderItems = new ArrayList<>();
 
+    @Column(name = "payment_intent_id", length = 100)
+    private String paymentIntentId;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "payment_status", length = 30)
+    private PaymentStatus paymentStatus;
+
     @PrePersist
     public void onCreate() {
         this.createdAt = LocalDateTime.now();
         recalcTotal();
+        if (paymentStatus == null) paymentStatus = PaymentStatus.REQUIRES_PAYMENT_METHOD;
     }
 
     @PreUpdate

@@ -2,6 +2,7 @@ package ch.asiankitchen.dto;
 
 import ch.asiankitchen.model.BuffetOrder;
 import ch.asiankitchen.model.OrderStatus;
+import ch.asiankitchen.model.PaymentStatus;
 import lombok.Builder;
 import lombok.Data;
 
@@ -18,6 +19,8 @@ public class BuffetOrderReadDTO {
     private OrderStatus status;
     private LocalDateTime createdAt;
     private BigDecimal totalPrice;
+    private PaymentStatus paymentStatus;
+    private String paymentIntentId;
 
     public static BuffetOrderReadDTO fromEntity(BuffetOrder o) {
         var ci = o.getCustomerInfo();
@@ -28,6 +31,8 @@ public class BuffetOrderReadDTO {
                 .status(o.getStatus())
                 .createdAt(o.getCreatedAt())
                 .totalPrice(o.getTotalPrice())
+                .paymentStatus(o.getPaymentStatus())
+                .paymentIntentId(o.getPaymentIntentId())
                 .build();
     }
 }

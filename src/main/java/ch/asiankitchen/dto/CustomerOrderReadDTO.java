@@ -19,6 +19,8 @@ public class CustomerOrderReadDTO {
     private BigDecimal totalPrice;
     private LocalDateTime createdAt;
     private String specialInstructions;
+    private PaymentStatus paymentStatus;
+    private String paymentIntentId;
 
     public static CustomerOrderReadDTO fromEntity(CustomerOrder o) {
         return CustomerOrderReadDTO.builder()
@@ -32,6 +34,8 @@ public class CustomerOrderReadDTO {
                 .totalPrice(o.getTotalPrice())
                 .createdAt(o.getCreatedAt())
                 .specialInstructions(o.getSpecialInstructions())
+                .paymentStatus(o.getPaymentStatus())
+                .paymentIntentId(o.getPaymentIntentId())
                 .build();
     }
 }

@@ -52,8 +52,16 @@ public class CustomerOrder {
     @Column(name = "deleted_at")
     private LocalDateTime deletedAt;
 
+    @Column(name = "payment_intent_id", length = 100)
+    private String paymentIntentId;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "payment_status", length = 30)
+    private PaymentStatus paymentStatus;
+
     @PrePersist
     protected void onCreate() {
         this.createdAt = LocalDateTime.now();
+        if (paymentStatus == null) paymentStatus = PaymentStatus.REQUIRES_PAYMENT_METHOD;
     }
 }

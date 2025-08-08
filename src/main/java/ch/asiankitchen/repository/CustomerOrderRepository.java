@@ -12,4 +12,5 @@ import java.util.UUID;
 public interface CustomerOrderRepository extends JpaRepository<CustomerOrder, UUID> {
     List<CustomerOrder> findByUserId(UUID userId);
     Optional<CustomerOrder> findByIdAndCustomerInfoEmail(UUID id, String email);
+    Optional<CustomerOrder> findByPaymentIntentId(String paymentIntentId);
 }
