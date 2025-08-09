@@ -2,7 +2,10 @@ package ch.asiankitchen.service;
 
 import ch.asiankitchen.dto.*;
 import ch.asiankitchen.exception.ResourceNotFoundException;
+import ch.asiankitchen.model.Reservation;
+import ch.asiankitchen.model.ReservationStatus;
 import ch.asiankitchen.repository.ReservationRepository;
+import jakarta.persistence.EntityNotFoundException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -12,14 +15,21 @@ import java.util.stream.*;
 @Service
 public class ReservationService {
     private final ReservationRepository repo;
+    private final ReservationEmailService emailService;
 
-    public ReservationService(ReservationRepository repo) {
+
+    public ReservationService(ReservationRepository repo, ReservationEmailService emailService) {
         this.repo = repo;
+        this.emailService = emailService;
     }
 
     @Transactional
     public ReservationReadDTO create(ReservationWriteDTO dto) {
-        var saved = repo.save(dto.toEntity());
+        Reservation saved = repo.save(dto.toEntity());
+
+        // Send email to restaurant
+        emailService.sendNewReservationToRestaurant(saved);
+
         return ReservationReadDTO.fromEntity(saved);
     }
 
@@ -38,11 +48,18 @@ public class ReservationService {
     }
 
     @Transactional
-    public ReservationReadDTO updateStatus(UUID id, ch.asiankitchen.model.ReservationStatus status) {
-        var r = repo.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Reservation", id));
-        r.setStatus(status);
-        return ReservationReadDTO.fromEntity(repo.save(r));
+    public ReservationReadDTO updateStatus(UUID id, ReservationStatus newStatus) {
+        Reservation res = repo.findById(id)
+                .orElseThrow(() -> new EntityNotFoundException("Reservation not found"));
+        res.setStatus(newStatus);
+
+        if (newStatus == ReservationStatus.CONFIRMED) {
+            emailService.sendConfirmationToCustomer(res);
+        } else if (newStatus == ReservationStatus.CANCELLED || newStatus == ReservationStatus.REJECTED) {
+            emailService.sendRejectionToCustomer(res);
+        }
+
+        return ReservationReadDTO.fromEntity(res);
     }
 
     @Transactional(readOnly = true)
