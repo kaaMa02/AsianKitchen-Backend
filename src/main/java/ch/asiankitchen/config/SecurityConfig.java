@@ -95,6 +95,8 @@ public class SecurityConfig {
                         .requestMatchers("/actuator/health").permitAll()
                         .requestMatchers("/api/contact/**").permitAll()
                         .requestMatchers("/api/payments/**").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/orders").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/orders/*/track").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/auth/register", "/api/auth/login").permitAll()
                         .requestMatchers(HttpMethod.GET,
                                 "/api/menu-items/**", "/api/buffet-items/**", "/api/restaurant-info/**").permitAll()
