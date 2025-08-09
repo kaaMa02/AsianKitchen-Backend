@@ -15,10 +15,8 @@ public class OrderTrackingController {
         this.service = service;
     }
 
-    @GetMapping("/track")
-    public CustomerOrderReadDTO track(
-            @RequestParam UUID orderId,
-            @RequestParam String email) {
-        return service.track(orderId, email);
+    @GetMapping("/{id}/track")
+    public CustomerOrderReadDTO track(@PathVariable UUID id, @RequestParam String email) {
+        return service.track(id, email);
     }
 }
