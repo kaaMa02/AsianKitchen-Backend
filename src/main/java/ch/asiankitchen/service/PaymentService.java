@@ -12,17 +12,16 @@ import com.stripe.exception.StripeException;
 import com.stripe.model.Event;
 import com.stripe.model.PaymentIntent;
 import com.stripe.net.Webhook;
+import com.stripe.param.PaymentIntentCreateParams;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import jakarta.annotation.PostConstruct;
+import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Optional;
-import java.util.UUID;
+import java.util.*;
 
 @Service
 @RequiredArgsConstructor
@@ -44,54 +43,47 @@ public class PaymentService {
 
     @Transactional
     public PaymentIntent createIntentForCustomerOrder(UUID id) throws StripeException {
-        // 1) Load with items & prices
-        CustomerOrder order = customerOrderRepo.findWithItemsAndPrices(id)
+        // Load the order (make sure it has items+prices in your query/mapping)
+        CustomerOrder order = customerOrderRepo.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("CustomerOrder", id));
 
-        // 2) Recompute total from DB
-        java.math.BigDecimal total = order.getOrderItems().stream()
+        // Recompute total on server
+        BigDecimal total = order.getOrderItems().stream()
                 .map(oi -> {
-                    // guard against null price
-                    java.math.BigDecimal price = oi.getMenuItem().getPrice();
-                    if (price == null) price = java.math.BigDecimal.ZERO;
-                    return price.multiply(java.math.BigDecimal.valueOf(oi.getQuantity()));
+                    BigDecimal price = Optional.ofNullable(oi.getMenuItem().getPrice()).orElse(BigDecimal.ZERO);
+                    return price.multiply(BigDecimal.valueOf(oi.getQuantity()));
                 })
-                .reduce(java.math.BigDecimal.ZERO, java.math.BigDecimal::add);
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        // Persist the (re)calculated total (optional but useful)
         order.setTotalPrice(total);
         customerOrderRepo.save(order);
 
-        long amountMinor = total.movePointRight(2)
-                .setScale(0, java.math.RoundingMode.HALF_UP)
-                .longValueExact();
+        long amountMinor = total.movePointRight(2).setScale(0, RoundingMode.HALF_UP).longValueExact();
 
-        // 3) Stripe minimum for CHF is 50 (CHF 0.50)
-        final long MIN_CHF = 50L;
-        if ("chf".equalsIgnoreCase(currency) && amountMinor < MIN_CHF) {
-            throw new IllegalArgumentException(
-                    "Order total is below Stripe minimum charge for CHF (0.50). " +
-                            "Add more items before paying."
-            );
+        // Stripe min for CHF is 50 (0.50 CHF)
+        if ("chf".equalsIgnoreCase(currency) && amountMinor < 50L) {
+            throw new IllegalArgumentException("Order total is below Stripe minimum charge for CHF (0.50).");
         }
 
-        // 4) Create the PaymentIntent with Automatic Payment Methods
-        com.stripe.param.PaymentIntentCreateParams params =
-                com.stripe.param.PaymentIntentCreateParams.builder()
-                        .setAmount(amountMinor)
-                        .setCurrency(currency) // keep lower-case, e.g. "chf"
-                        .setAutomaticPaymentMethods(
-                                com.stripe.param.PaymentIntentCreateParams.AutomaticPaymentMethods
-                                        .builder().setEnabled(true).build()
-                        )
-                        .putMetadata("type", "customer")
-                        .putMetadata("orderId", order.getId().toString())
-                        .build();
+        PaymentIntentCreateParams params = PaymentIntentCreateParams.builder()
+                .setAmount(amountMinor)
+                .setCurrency(currency)
+                .setAutomaticPaymentMethods(
+                        PaymentIntentCreateParams.AutomaticPaymentMethods.builder()
+                                .setEnabled(true)
+                                .setAllowRedirects(
+                                        PaymentIntentCreateParams.AutomaticPaymentMethods.AllowRedirects.NEVER
+                                )
+                                .build()
+                )
+                .putMetadata("type", "customer")
+                .putMetadata("orderId", order.getId().toString())
+                .build();
 
         PaymentIntent intent = PaymentIntent.create(params);
 
         order.setPaymentIntentId(intent.getId());
-        order.setPaymentStatus(ch.asiankitchen.model.PaymentStatus.REQUIRES_PAYMENT_METHOD);
+        order.setPaymentStatus(PaymentStatus.REQUIRES_PAYMENT_METHOD);
         customerOrderRepo.save(order);
         return intent;
     }
@@ -101,34 +93,30 @@ public class PaymentService {
         BuffetOrder order = buffetOrderRepo.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("BuffetOrder", id));
 
-        long amountMinor = order.getTotalPrice()
-                .movePointRight(2)
-                .setScale(0, java.math.RoundingMode.HALF_UP)
-                .longValueExact();
-
-        final long MIN_CHF = 50L;
-        if ("chf".equalsIgnoreCase(currency) && amountMinor < MIN_CHF) {
-            throw new IllegalArgumentException(
-                    "Order total is below Stripe minimum charge for CHF (0.50)."
-            );
+        long amountMinor = order.getTotalPrice().movePointRight(2).setScale(0, RoundingMode.HALF_UP).longValueExact();
+        if ("chf".equalsIgnoreCase(currency) && amountMinor < 50L) {
+            throw new IllegalArgumentException("Order total is below Stripe minimum charge for CHF (0.50).");
         }
 
-        com.stripe.param.PaymentIntentCreateParams params =
-                com.stripe.param.PaymentIntentCreateParams.builder()
-                        .setAmount(amountMinor)
-                        .setCurrency(currency)
-                        .setAutomaticPaymentMethods(
-                                com.stripe.param.PaymentIntentCreateParams.AutomaticPaymentMethods
-                                        .builder().setEnabled(true).build()
-                        )
-                        .putMetadata("type", "buffet")
-                        .putMetadata("orderId", order.getId().toString())
-                        .build();
+        PaymentIntentCreateParams params = PaymentIntentCreateParams.builder()
+                .setAmount(amountMinor)
+                .setCurrency(currency)
+                .setAutomaticPaymentMethods(
+                        PaymentIntentCreateParams.AutomaticPaymentMethods.builder()
+                                .setEnabled(true)
+                                .setAllowRedirects(
+                                        PaymentIntentCreateParams.AutomaticPaymentMethods.AllowRedirects.NEVER
+                                )
+                                .build()
+                )
+                .putMetadata("type", "buffet")
+                .putMetadata("orderId", order.getId().toString())
+                .build();
 
         PaymentIntent intent = PaymentIntent.create(params);
 
         order.setPaymentIntentId(intent.getId());
-        order.setPaymentStatus(ch.asiankitchen.model.PaymentStatus.REQUIRES_PAYMENT_METHOD);
+        order.setPaymentStatus(PaymentStatus.REQUIRES_PAYMENT_METHOD);
         buffetOrderRepo.save(order);
         return intent;
     }
@@ -141,30 +129,23 @@ public class PaymentService {
 
         switch (event.getType()) {
             case "payment_intent.succeeded" -> {
-                PaymentIntent pi = (PaymentIntent) event.getDataObjectDeserializer()
-                        .getObject().orElse(null);
+                PaymentIntent pi = (PaymentIntent) event.getDataObjectDeserializer().getObject().orElse(null);
                 if (pi != null) updateByPaymentIntent(pi.getId(), PaymentStatus.SUCCEEDED);
             }
             case "payment_intent.payment_failed" -> {
-                PaymentIntent pi = (PaymentIntent) event.getDataObjectDeserializer()
-                        .getObject().orElse(null);
+                PaymentIntent pi = (PaymentIntent) event.getDataObjectDeserializer().getObject().orElse(null);
                 if (pi != null) updateByPaymentIntent(pi.getId(), PaymentStatus.FAILED);
             }
-            default -> {
-                // ignore others for now
-            }
+            default -> { /* ignore */ }
         }
     }
 
     private void updateByPaymentIntent(String paymentIntentId, PaymentStatus status) {
-        Optional<CustomerOrder> co = customerOrderRepo.findByPaymentIntentId(paymentIntentId);
-        co.ifPresent(o -> {
+        customerOrderRepo.findByPaymentIntentId(paymentIntentId).ifPresent(o -> {
             o.setPaymentStatus(status);
             customerOrderRepo.save(o);
         });
-
-        Optional<BuffetOrder> bo = buffetOrderRepo.findByPaymentIntentId(paymentIntentId);
-        bo.ifPresent(o -> {
+        buffetOrderRepo.findByPaymentIntentId(paymentIntentId).ifPresent(o -> {
             o.setPaymentStatus(status);
             buffetOrderRepo.save(o);
         });
