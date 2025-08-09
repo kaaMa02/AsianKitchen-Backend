@@ -3,6 +3,7 @@ package ch.asiankitchen.service;
 import ch.asiankitchen.exception.ResourceNotFoundException;
 import ch.asiankitchen.model.BuffetOrder;
 import ch.asiankitchen.model.CustomerOrder;
+import ch.asiankitchen.model.OrderStatus;
 import ch.asiankitchen.model.PaymentStatus;
 import ch.asiankitchen.repository.BuffetOrderRepository;
 import ch.asiankitchen.repository.CustomerOrderRepository;
@@ -202,10 +203,16 @@ public class PaymentService {
     private void updateByPaymentIntent(String paymentIntentId, PaymentStatus status) {
         customerOrderRepo.findByPaymentIntentId(paymentIntentId).ifPresent(o -> {
             o.setPaymentStatus(status);
+            if (status == PaymentStatus.SUCCEEDED && o.getStatus() == OrderStatus.NEW) {
+                o.setStatus(OrderStatus.CONFIRMED);
+            }
             customerOrderRepo.save(o);
         });
         buffetOrderRepo.findByPaymentIntentId(paymentIntentId).ifPresent(o -> {
             o.setPaymentStatus(status);
+            if (status == PaymentStatus.SUCCEEDED && o.getStatus() == OrderStatus.NEW) {
+                o.setStatus(OrderStatus.CONFIRMED);
+            }
             buffetOrderRepo.save(o);
         });
     }
