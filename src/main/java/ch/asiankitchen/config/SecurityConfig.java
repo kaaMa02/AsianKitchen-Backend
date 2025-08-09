@@ -18,8 +18,12 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.servlet.util.matcher.MvcRequestMatcher;
+import org.springframework.security.web.util.matcher.OrRequestMatcher;
+import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.web.cors.*;
 import org.springframework.web.filter.CorsFilter;
+import org.springframework.web.servlet.handler.HandlerMappingIntrospector;
 
 import java.util.Arrays;
 import java.util.List;
@@ -39,7 +43,6 @@ public class SecurityConfig {
         this.userDetailsService = userDetailsService;
         this.jwtTokenProvider = jwtTokenProvider;
     }
-
 
     @Bean
     CorsConfigurationSource corsConfigurationSource() {
@@ -68,10 +71,18 @@ public class SecurityConfig {
     }
 
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
-        // JWT filter that will parse and validate tokens
+    public SecurityFilterChain securityFilterChain(HttpSecurity http,
+                                                   HandlerMappingIntrospector introspector) throws Exception {
+
+        RequestMatcher publicEndpoints = new OrRequestMatcher(
+                new MvcRequestMatcher(introspector, "/actuator/**"),
+                new MvcRequestMatcher(introspector, "/api/auth/**"),
+                new MvcRequestMatcher(introspector, "/api/contact/**"),
+                new MvcRequestMatcher(introspector, "/api/payments/**")
+        );
+
         JwtAuthenticationFilter jwtFilter =
-                new JwtAuthenticationFilter(jwtTokenProvider, userDetailsService);
+                new JwtAuthenticationFilter(jwtTokenProvider, userDetailsService, publicEndpoints);
 
         http
                 .cors(Customizer.withDefaults())
@@ -80,29 +91,18 @@ public class SecurityConfig {
                 .authenticationProvider(daoAuthProvider())
                 .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class)
                 .authorizeHttpRequests(auth -> auth
+                        .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers("/actuator/health").permitAll()
-                        .requestMatchers("/api/payments/stripe/webhook").permitAll() // webhook
-                        // allow registration & login
+                        .requestMatchers("/api/contact/**").permitAll()
+                        .requestMatchers("/api/payments/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/auth/register", "/api/auth/login").permitAll()
-                        // public GET endpoints
                         .requestMatchers(HttpMethod.GET,
-                                "/api/menu-items/**",
-                                "/api/buffet-items/**",
-                                "/api/restaurant-info/**"
-                        ).permitAll()
-                        // public for contact + Stripe webhook
-                        .requestMatchers(HttpMethod.POST, "/api/contact").permitAll()
-                        .requestMatchers(HttpMethod.POST, "/api/payments/webhook").permitAll()
-                        // admin-only actuator
+                                "/api/menu-items/**", "/api/buffet-items/**", "/api/restaurant-info/**").permitAll()
                         .requestMatchers("/actuator/**").hasRole("ADMIN")
-                        // admin-only API
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
-                        // everything else requires authentication
                         .anyRequest().authenticated()
                 )
-                .exceptionHandling(e -> e
-                        .authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED))
-                );
+                .exceptionHandling(e -> e.authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)));
 
         return http.build();
     }
