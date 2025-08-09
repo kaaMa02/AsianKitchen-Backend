@@ -54,13 +54,14 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
-    @ResponseStatus(HttpStatus.BAD_REQUEST)
-    public Map<String,Object> handleIllegalArg(IllegalArgumentException ex){
-        return Map.of(
+    @ResponseStatus(org.springframework.http.HttpStatus.BAD_REQUEST)
+    public java.util.Map<String,Object> handleIllegalArg(IllegalArgumentException ex) {
+        return java.util.Map.of(
                 "timestamp", java.time.LocalDateTime.now(),
                 "status", 400,
                 "error", "Bad Request",
                 "message", ex.getMessage()
         );
     }
+
 }

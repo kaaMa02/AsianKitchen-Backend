@@ -1,7 +1,6 @@
 package ch.asiankitchen.repository;
 
 import ch.asiankitchen.model.MenuItem;
-import ch.asiankitchen.model.MenuItemCategory;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
