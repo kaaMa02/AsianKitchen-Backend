@@ -6,6 +6,10 @@ import ch.asiankitchen.model.CustomerOrder;
 import ch.asiankitchen.model.PaymentStatus;
 import ch.asiankitchen.repository.BuffetOrderRepository;
 import ch.asiankitchen.repository.CustomerOrderRepository;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import com.stripe.model.Charge;
+import com.stripe.model.EventDataObjectDeserializer;
 import com.stripe.Stripe;
 import com.stripe.exception.SignatureVerificationException;
 import com.stripe.exception.StripeException;
@@ -128,16 +132,71 @@ public class PaymentService {
         Event event = Webhook.constructEvent(payload, signatureHeader, webhookSecret);
 
         switch (event.getType()) {
+            // --- PaymentIntent events ---
             case "payment_intent.succeeded" -> {
-                PaymentIntent pi = (PaymentIntent) event.getDataObjectDeserializer().getObject().orElse(null);
-                if (pi != null) updateByPaymentIntent(pi.getId(), PaymentStatus.SUCCEEDED);
+                String piId = extractPaymentIntentId(event);
+                if (piId != null) updateByPaymentIntent(piId, PaymentStatus.SUCCEEDED);
             }
             case "payment_intent.payment_failed" -> {
-                PaymentIntent pi = (PaymentIntent) event.getDataObjectDeserializer().getObject().orElse(null);
-                if (pi != null) updateByPaymentIntent(pi.getId(), PaymentStatus.FAILED);
+                String piId = extractPaymentIntentId(event);
+                if (piId != null) updateByPaymentIntent(piId, PaymentStatus.FAILED);
             }
-            default -> { /* ignore */ }
+
+            // --- Charge events (some accounts send these more reliably) ---
+            case "charge.succeeded" -> {
+                String piId = extractPaymentIntentIdFromCharge(event);
+                if (piId != null) updateByPaymentIntent(piId, PaymentStatus.SUCCEEDED);
+            }
+            case "charge.failed" -> {
+                String piId = extractPaymentIntentIdFromCharge(event);
+                if (piId != null) updateByPaymentIntent(piId, PaymentStatus.FAILED);
+            }
+
+            default -> {
+                // Ignore other event types for now
+            }
         }
+    }
+
+    /** Try to pull PI id from a payment_intent.* event. Falls back to parsing raw JSON string. */
+    private String extractPaymentIntentId(Event event) {
+        EventDataObjectDeserializer d = event.getDataObjectDeserializer();
+
+        // 1) Best case: Stripe already deserialized the object
+        if (d.getObject().isPresent()) {
+            Object obj = d.getObject().get();
+            if (obj instanceof PaymentIntent pi) {
+                return pi.getId();
+            }
+        }
+
+        // 2) Fallback: parse the raw JSON string
+        String raw = d.getRawJson();
+        if (raw != null) {
+            JsonObject o = JsonParser.parseString(raw).getAsJsonObject();
+            if (o.has("id")) return o.get("id").getAsString();                 // payment_intent.id
+            if (o.has("payment_intent")) return o.get("payment_intent").getAsString(); // just in case
+        }
+        return null;
+    }
+
+    /** Pull PI id from a charge.* event (object is Charge). Fallback parses raw JSON. */
+    private String extractPaymentIntentIdFromCharge(Event event) {
+        EventDataObjectDeserializer d = event.getDataObjectDeserializer();
+
+        if (d.getObject().isPresent()) {
+            Object obj = d.getObject().get();
+            if (obj instanceof Charge ch) {
+                return ch.getPaymentIntent(); // returns the PaymentIntent ID string
+            }
+        }
+
+        String raw = d.getRawJson();
+        if (raw != null) {
+            JsonObject o = JsonParser.parseString(raw).getAsJsonObject();
+            if (o.has("payment_intent")) return o.get("payment_intent").getAsString();
+        }
+        return null;
     }
 
     private void updateByPaymentIntent(String paymentIntentId, PaymentStatus status) {
@@ -150,4 +209,5 @@ public class PaymentService {
             buffetOrderRepo.save(o);
         });
     }
+
 }
