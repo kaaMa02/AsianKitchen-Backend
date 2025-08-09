@@ -13,4 +13,14 @@ public interface CustomerOrderRepository extends JpaRepository<CustomerOrder, UU
     List<CustomerOrder> findByUserId(UUID userId);
     Optional<CustomerOrder> findByIdAndCustomerInfoEmail(UUID id, String email);
     Optional<CustomerOrder> findByPaymentIntentId(String paymentIntentId);
+
+    @org.springframework.data.jpa.repository.Query("""
+        select o
+        from CustomerOrder o
+        left join fetch o.orderItems oi
+        left join fetch oi.menuItem mi
+        where o.id = :id
+    """)
+    Optional<CustomerOrder> findWithItemsAndPrices(UUID id);
+
 }

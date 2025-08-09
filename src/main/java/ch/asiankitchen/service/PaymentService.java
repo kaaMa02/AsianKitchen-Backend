@@ -44,22 +44,54 @@ public class PaymentService {
 
     @Transactional
     public PaymentIntent createIntentForCustomerOrder(UUID id) throws StripeException {
-        CustomerOrder order = customerOrderRepo.findById(id)
+        // 1) Load with items & prices
+        CustomerOrder order = customerOrderRepo.findWithItemsAndPrices(id)
                 .orElseThrow(() -> new ResourceNotFoundException("CustomerOrder", id));
 
-        long amountMinor = order.getTotalPrice()
-                .movePointRight(2)
-                .setScale(0, RoundingMode.HALF_UP)
+        // 2) Recompute total from DB
+        java.math.BigDecimal total = order.getOrderItems().stream()
+                .map(oi -> {
+                    // guard against null price
+                    java.math.BigDecimal price = oi.getMenuItem().getPrice();
+                    if (price == null) price = java.math.BigDecimal.ZERO;
+                    return price.multiply(java.math.BigDecimal.valueOf(oi.getQuantity()));
+                })
+                .reduce(java.math.BigDecimal.ZERO, java.math.BigDecimal::add);
+
+        // Persist the (re)calculated total (optional but useful)
+        order.setTotalPrice(total);
+        customerOrderRepo.save(order);
+
+        long amountMinor = total.movePointRight(2)
+                .setScale(0, java.math.RoundingMode.HALF_UP)
                 .longValueExact();
 
-        Map<String, Object> params = new HashMap<>();
-        params.put("amount", amountMinor);
-        params.put("currency", currency);
-        params.put("metadata", Map.of("type", "customer", "orderId", order.getId().toString()));
+        // 3) Stripe minimum for CHF is 50 (CHF 0.50)
+        final long MIN_CHF = 50L;
+        if ("chf".equalsIgnoreCase(currency) && amountMinor < MIN_CHF) {
+            throw new IllegalArgumentException(
+                    "Order total is below Stripe minimum charge for CHF (0.50). " +
+                            "Add more items before paying."
+            );
+        }
+
+        // 4) Create the PaymentIntent with Automatic Payment Methods
+        com.stripe.param.PaymentIntentCreateParams params =
+                com.stripe.param.PaymentIntentCreateParams.builder()
+                        .setAmount(amountMinor)
+                        .setCurrency(currency) // keep lower-case, e.g. "chf"
+                        .setAutomaticPaymentMethods(
+                                com.stripe.param.PaymentIntentCreateParams.AutomaticPaymentMethods
+                                        .builder().setEnabled(true).build()
+                        )
+                        .putMetadata("type", "customer")
+                        .putMetadata("orderId", order.getId().toString())
+                        .build();
 
         PaymentIntent intent = PaymentIntent.create(params);
+
         order.setPaymentIntentId(intent.getId());
-        order.setPaymentStatus(PaymentStatus.REQUIRES_PAYMENT_METHOD);
+        order.setPaymentStatus(ch.asiankitchen.model.PaymentStatus.REQUIRES_PAYMENT_METHOD);
         customerOrderRepo.save(order);
         return intent;
     }
@@ -71,17 +103,32 @@ public class PaymentService {
 
         long amountMinor = order.getTotalPrice()
                 .movePointRight(2)
-                .setScale(0, RoundingMode.HALF_UP)
+                .setScale(0, java.math.RoundingMode.HALF_UP)
                 .longValueExact();
 
-        Map<String, Object> params = new HashMap<>();
-        params.put("amount", amountMinor);
-        params.put("currency", currency);
-        params.put("metadata", Map.of("type", "buffet", "orderId", order.getId().toString()));
+        final long MIN_CHF = 50L;
+        if ("chf".equalsIgnoreCase(currency) && amountMinor < MIN_CHF) {
+            throw new IllegalArgumentException(
+                    "Order total is below Stripe minimum charge for CHF (0.50)."
+            );
+        }
+
+        com.stripe.param.PaymentIntentCreateParams params =
+                com.stripe.param.PaymentIntentCreateParams.builder()
+                        .setAmount(amountMinor)
+                        .setCurrency(currency)
+                        .setAutomaticPaymentMethods(
+                                com.stripe.param.PaymentIntentCreateParams.AutomaticPaymentMethods
+                                        .builder().setEnabled(true).build()
+                        )
+                        .putMetadata("type", "buffet")
+                        .putMetadata("orderId", order.getId().toString())
+                        .build();
 
         PaymentIntent intent = PaymentIntent.create(params);
+
         order.setPaymentIntentId(intent.getId());
-        order.setPaymentStatus(PaymentStatus.REQUIRES_PAYMENT_METHOD);
+        order.setPaymentStatus(ch.asiankitchen.model.PaymentStatus.REQUIRES_PAYMENT_METHOD);
         buffetOrderRepo.save(order);
         return intent;
     }
