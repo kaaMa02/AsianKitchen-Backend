@@ -2,6 +2,7 @@ package ch.asiankitchen.dto;
 
 import ch.asiankitchen.model.Reservation;
 import ch.asiankitchen.model.ReservationStatus;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
 import lombok.*;
 
@@ -10,7 +11,9 @@ import java.time.LocalDateTime;
 @Data
 @Builder
 public class ReservationWriteDTO {
+
     @NotNull
+    @Valid
     private CustomerInfoDTO customerInfo;
 
     @NotNull

@@ -56,4 +56,11 @@ public class ReservationService {
     public void delete(UUID id) {
         repo.deleteById(id);
     }
+
+    @Transactional(readOnly = true)
+    public ReservationReadDTO track(UUID id, String email) {
+        return repo.findByIdAndCustomerInfoEmail(id, email)
+                .map(ReservationReadDTO::fromEntity)
+                .orElseThrow(() -> new ResourceNotFoundException("Reservation", id));
+    }
 }

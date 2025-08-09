@@ -35,10 +35,11 @@ public class ReservationController {
         return ResponseEntity.created(location).body(created);
     }
 
-    @GetMapping("/{id}")
-    public ReservationReadDTO getById(@PathVariable UUID id) {
-        return service.getById(id);
+    @GetMapping("/{id}/track")
+    public ReservationReadDTO track(@PathVariable UUID id, @RequestParam String email) {
+        return service.track(id, email);
     }
+
 
     @GetMapping
     public List<ReservationReadDTO> listByUser(@RequestParam UUID userId) {
