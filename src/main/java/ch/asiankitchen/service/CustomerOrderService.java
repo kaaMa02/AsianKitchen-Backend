@@ -84,12 +84,14 @@ public class CustomerOrderService {
     }
 
     private BigDecimal computeTotal(CustomerOrder order) {
-        return order.getOrderItems().stream()
-                .map(oi -> {
-                    BigDecimal price = oi.getMenuItem().getPrice();
-                    if (price == null) price = BigDecimal.ZERO;
-                    return price.multiply(BigDecimal.valueOf(oi.getQuantity()));
-                })
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        var total = order.getOrderItems().stream()
+                .map(oi -> oi.getMenuItem().getPrice().multiply(BigDecimal.valueOf(oi.getQuantity())))
+                .reduce(BigDecimal.ZERO, BigDecimal::add)
+                .setScale(2, java.math.RoundingMode.HALF_UP);
+
+        if (total.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException("Order total must be greater than zero.");
+        }
+        return total;
     }
 }
