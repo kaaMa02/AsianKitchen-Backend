@@ -40,23 +40,9 @@ public class ReservationController {
         return service.track(id, email);
     }
 
-
     @GetMapping
     public List<ReservationReadDTO> listByUser(@RequestParam UUID userId) {
         return service.listByUser(userId);
     }
 
-    @PatchMapping("/{id}/status")
-    public ReservationReadDTO updateStatus(
-            @PathVariable UUID id,
-            @Valid @RequestBody ReservationStatusDTO dto) {
-        ReservationStatus newStatus = ReservationStatus.valueOf(dto.getStatus());
-        return service.updateStatus(id, newStatus);
-    }
-
-    @DeleteMapping("/{id}")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void delete(@PathVariable UUID id) {
-        service.delete(id);
-    }
 }
