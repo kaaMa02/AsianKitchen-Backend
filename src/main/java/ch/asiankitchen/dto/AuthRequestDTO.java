@@ -5,9 +5,9 @@ import lombok.*;
 
 @Data @NoArgsConstructor @AllArgsConstructor
 public class AuthRequestDTO {
-    @NotBlank
+    @NotBlank(message = "Username is required")
     private String username;
 
-    @NotBlank
+    @NotBlank(message = "Username is required")
     private String password;
 }

@@ -15,6 +15,7 @@ import lombok.NoArgsConstructor;
 public class RegisterRequestDTO {
 
     @NotBlank
+    @Size(min=3, max=50)
     private String username;
 
     @NotBlank
@@ -27,7 +28,7 @@ public class RegisterRequestDTO {
     @NotBlank
     private String lastName;
 
-    @Email
+    @Email(message="Invalid email")
     private String email;
 
     private String phoneNumber;
