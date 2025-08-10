@@ -27,6 +27,7 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
 import org.springframework.web.cors.*;
 import org.springframework.web.servlet.handler.HandlerMappingIntrospector;
 
@@ -52,6 +53,9 @@ public class SecurityConfig {
 
     @Value("${app.security.auth-cookie-name:AK_AUTH}")
     private String authCookieName;
+
+    @Value("${app.security.cookie-domain:}") // e.g. .asian-kitchen.online in prod
+    private String cookieDomain;
 
     @Bean
     public AuthenticationManager authenticationManager(
@@ -85,29 +89,32 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http,
                                                    HandlerMappingIntrospector introspector) throws Exception {
-
-        // Read JWT from HttpOnly cookie on every request
         var cookieJwtFilter = new JwtCookieAuthFilter(jwtTokenProvider, userDetailsService, authCookieName);
+
+        // Build a CSRF cookie that the FE can read
+        var csrfRepo = CookieCsrfTokenRepository.withHttpOnlyFalse();
+        csrfRepo.setCookieCustomizer(builder -> {
+            if (cookieDomain != null && !cookieDomain.isBlank()) builder.domain(cookieDomain);
+            builder.path("/");
+            builder.secure(true);
+            builder.sameSite("None");
+        });
 
         http
                 .cors(Customizer.withDefaults())
                 .csrf(csrf -> csrf
-                        .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
+                        .csrfTokenRepository(csrfRepo)
+                        // Stripe posts without CSRF token
+                        .ignoringRequestMatchers(new AntPathRequestMatcher("/api/payments/webhook", "POST"))
                 )
                 .headers(h -> h
                         .contentSecurityPolicy(csp -> csp.policyDirectives(
-                                "default-src 'self'; " +
-                                        "img-src 'self' data: https:; " +
-                                        "script-src 'self'; " +
-                                        "style-src 'self' 'unsafe-inline'; " +
-                                        "connect-src 'self' https:; " +
-                                        "frame-ancestors 'none'"
+                                "default-src 'self'; img-src 'self' data: https:; script-src 'self'; " +
+                                        "style-src 'self' 'unsafe-inline'; connect-src 'self' https:; frame-ancestors 'none'"
                         ))
-                        .referrerPolicy(r -> r.policy(org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter.ReferrerPolicy.NO_REFERRER))
-                        .httpStrictTransportSecurity(hsts -> hsts
-                                .includeSubDomains(true)
-                                .preload(true)
-                                .maxAgeInSeconds(31536000))
+                        .referrerPolicy(r -> r.policy(
+                                org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter.ReferrerPolicy.NO_REFERRER))
+                        .httpStrictTransportSecurity(hsts -> hsts.includeSubDomains(true).preload(true).maxAgeInSeconds(31536000))
                         .frameOptions(f -> f.deny())
                 )
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -115,29 +122,23 @@ public class SecurityConfig {
                 .addFilterBefore(cookieJwtFilter, UsernamePasswordAuthenticationFilter.class)
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                        // public info + csrf bootstrap
-                        .requestMatchers("/api/csrf").permitAll()
                         .requestMatchers("/actuator/health", "/api/csrf").permitAll()
                         .requestMatchers(HttpMethod.GET,
-                                "/api/food-items/**",
-                                "/api/menu-items/**",
-                                "/api/buffet-items/**",
-                                "/api/restaurant-info/**"
+                                "/api/food-items/**", "/api/menu-items/**", "/api/buffet-items/**", "/api/restaurant-info/**"
                         ).permitAll()
-                        // public flows
                         .requestMatchers("/api/contact/**").permitAll()
-                        .requestMatchers("/api/payments/**").permitAll()
+                        .requestMatchers("/api/payments/**").permitAll()   // keep webhook + payment intents public
                         .requestMatchers(HttpMethod.POST, "/api/auth/register", "/api/auth/login", "/api/auth/logout").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/reservations").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/reservations/*/track").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/orders/*/track").permitAll()
-                        .requestMatchers(HttpMethod.POST, "/api/orders").permitAll()
-                        // admin
+                        .requestMatchers(HttpMethod.POST, "/api/orders").permitAll() // still protected by CSRF
                         .requestMatchers("/actuator/**").hasRole("ADMIN")
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated()
                 )
                 .exceptionHandling(e -> e.authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)));
+
         return http.build();
     }
 
