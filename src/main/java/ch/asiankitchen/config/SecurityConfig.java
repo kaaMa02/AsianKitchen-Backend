@@ -91,22 +91,18 @@ public class SecurityConfig {
                                                    HandlerMappingIntrospector introspector) throws Exception {
         var cookieJwtFilter = new JwtCookieAuthFilter(jwtTokenProvider, userDetailsService, authCookieName);
 
-        // Build a CSRF cookie that the FE can read
+        // <<< add this >>>
         var csrfRepo = CookieCsrfTokenRepository.withHttpOnlyFalse();
-        csrfRepo.setCookieCustomizer(builder -> {
-            if (cookieDomain != null && !cookieDomain.isBlank()) builder.domain(cookieDomain);
-            builder.path("/");
-            builder.secure(true);
-            builder.sameSite("None");
-        });
+        csrfRepo.setCookieCustomizer(c -> c
+                .domain(".asian-kitchen.online") // readable on apex + subdomains
+                .path("/")
+                .sameSite("Lax")                  // fine for same-site subdomain XHR
+                .secure(true)
+        );
 
         http
                 .cors(Customizer.withDefaults())
-                .csrf(csrf -> csrf
-                        .csrfTokenRepository(csrfRepo)
-                        // Stripe posts without CSRF token
-                        .ignoringRequestMatchers(new AntPathRequestMatcher("/api/payments/webhook", "POST"))
-                )
+                .csrf(csrf -> csrf.csrfTokenRepository(csrfRepo))
                 .headers(h -> h
                         .contentSecurityPolicy(csp -> csp.policyDirectives(
                                 "default-src 'self'; img-src 'self' data: https:; script-src 'self'; " +
@@ -122,23 +118,29 @@ public class SecurityConfig {
                 .addFilterBefore(cookieJwtFilter, UsernamePasswordAuthenticationFilter.class)
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+                        .requestMatchers("/api/csrf").permitAll()
                         .requestMatchers("/actuator/health", "/api/csrf").permitAll()
                         .requestMatchers(HttpMethod.GET,
-                                "/api/food-items/**", "/api/menu-items/**", "/api/buffet-items/**", "/api/restaurant-info/**"
+                                "/api/food-items/**",
+                                "/api/menu-items/**",
+                                "/api/buffet-items/**",
+                                "/api/restaurant-info/**"
                         ).permitAll()
+                        // public flows
                         .requestMatchers("/api/contact/**").permitAll()
-                        .requestMatchers("/api/payments/**").permitAll()   // keep webhook + payment intents public
+                        .requestMatchers("/api/payments/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/auth/register", "/api/auth/login", "/api/auth/logout").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/reservations").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/reservations/*/track").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/orders/*/track").permitAll()
-                        .requestMatchers(HttpMethod.POST, "/api/orders").permitAll() // still protected by CSRF
+                        .requestMatchers(HttpMethod.POST, "/api/orders").permitAll()
+                        // admin
                         .requestMatchers("/actuator/**").hasRole("ADMIN")
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated()
                 )
-                .exceptionHandling(e -> e.authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)));
-
+                .exceptionHandling(e -> e.authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
+                .addFilterBefore(cookieJwtFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }
 
