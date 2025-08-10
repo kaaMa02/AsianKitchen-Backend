@@ -3,7 +3,9 @@ package ch.asiankitchen.controller;
 import ch.asiankitchen.service.PaymentService;
 import com.stripe.exception.SignatureVerificationException;
 import com.stripe.exception.StripeException;
+import com.stripe.model.Event;
 import com.stripe.model.PaymentIntent;
+import com.stripe.net.Webhook;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
@@ -37,15 +39,26 @@ public class PaymentController {
     }
 
     @PostMapping("/webhook")
-    public ResponseEntity<String> webhook(@RequestBody String payload,
-                                          @RequestHeader("Stripe-Signature") String sig) {
+    public ResponseEntity<String> handle(@RequestBody String payload, @RequestHeader("Stripe-Signature") String sig) {
+        Event event;
         try {
-            service.handleWebhook(payload, sig, webhookSecret);
-            return ResponseEntity.ok().build();
+            event = Webhook.constructEvent(payload, sig, webhookSecret);
         } catch (SignatureVerificationException e) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("invalid signature");
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("error");
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("Invalid signature");
         }
+
+        switch (event.getType()) {
+            case "payment_intent.succeeded" -> {
+                var pi = (com.stripe.model.PaymentIntent) event.getDataObjectDeserializer().getObject().orElse(null);
+                if (pi != null) {
+                    String orderId = pi.getMetadata().get("orderId"); // if you set it
+                    // TODO: mark order CONFIRMED, send email, etc.
+                }
+            }
+            case "payment_intent.payment_failed" -> {
+                // optional: mark FAILED / notify
+            }
+        }
+        return ResponseEntity.ok("ok");
     }
 }
