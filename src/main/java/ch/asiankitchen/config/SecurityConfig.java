@@ -95,48 +95,33 @@ public class SecurityConfig {
                                                    HandlerMappingIntrospector introspector) throws Exception {
         var cookieJwtFilter = new JwtCookieAuthFilter(jwtTokenProvider, userDetailsService, authCookieName);
 
-        // <<< add this >>>
+        // build once
         var csrfRepo = CookieCsrfTokenRepository.withHttpOnlyFalse();
         csrfRepo.setCookieCustomizer(c -> c
-                .domain(".asian-kitchen.online") // readable on apex + subdomains
+                .domain(".asian-kitchen.online") // <-- share with apex + subdomains
                 .path("/")
-                .sameSite("Lax")                  // fine for same-site subdomain XHR
+                .sameSite("Lax")
                 .secure(true)
         );
 
         http
                 .cors(Customizer.withDefaults())
                 .csrf(csrf -> csrf
-                        .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
+                        .csrfTokenRepository(csrfRepo)
                         .ignoringRequestMatchers(
                                 new AntPathRequestMatcher("/api/orders", "POST"),
                                 new AntPathRequestMatcher("/api/payments/**")
                         )
                 )
-                .headers(h -> h
-                        .contentSecurityPolicy(csp -> csp.policyDirectives(
-                                "default-src 'self'; img-src 'self' data: https:; script-src 'self'; " +
-                                        "style-src 'self' 'unsafe-inline'; connect-src 'self' https:; frame-ancestors 'none'"
-                        ))
-                        .referrerPolicy(r -> r.policy(
-                                org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter.ReferrerPolicy.NO_REFERRER))
-                        .httpStrictTransportSecurity(hsts -> hsts.includeSubDomains(true).preload(true).maxAgeInSeconds(31536000))
-                        .frameOptions(f -> f.deny())
-                )
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authenticationProvider(daoAuthProvider())
-                .addFilterBefore(cookieJwtFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterBefore(cookieJwtFilter, UsernamePasswordAuthenticationFilter.class) // <-- keep only once
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers("/api/csrf").permitAll()
-                        .requestMatchers("/actuator/health", "/api/csrf").permitAll()
                         .requestMatchers(HttpMethod.GET,
-                                "/api/food-items/**",
-                                "/api/menu-items/**",
-                                "/api/buffet-items/**",
-                                "/api/restaurant-info/**"
+                                "/api/food-items/**","/api/menu-items/**","/api/buffet-items/**","/api/restaurant-info/**"
                         ).permitAll()
-                        // public flows
                         .requestMatchers("/api/contact/**").permitAll()
                         .requestMatchers("/api/payments/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/auth/register", "/api/auth/login", "/api/auth/logout").permitAll()
@@ -144,13 +129,11 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/reservations/*/track").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/orders/*/track").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/orders").permitAll()
-                        // admin
                         .requestMatchers("/actuator/**").hasRole("ADMIN")
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated()
                 )
-                .exceptionHandling(e -> e.authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
-                .addFilterBefore(cookieJwtFilter, UsernamePasswordAuthenticationFilter.class);
+                .exceptionHandling(e -> e.authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)));
         return http.build();
     }
 
