@@ -1,4 +1,7 @@
-DELETE FROM users;
+DELETE FROM users
+WHERE id='e04918c8-1283-46cc-b7bd-6dfe47ecd887'::uuid;
+DELETE FROM users
+WHERE id='c3015c0d-fd1b-4d89-bf12-2a7a0186263e'::uuid;
 
 INSERT INTO users (
     id,
