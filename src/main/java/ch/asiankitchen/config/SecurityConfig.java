@@ -74,17 +74,21 @@ public class SecurityConfig {
     @Bean
     CorsConfigurationSource corsConfigurationSource() {
         var cors = new CorsConfiguration();
-        cors.setAllowedOrigins(Arrays.asList(allowedOrigins));
+        cors.setAllowedOrigins(List.of(
+                "https://asian-kitchen.online",
+                "https://www.asian-kitchen.online"
+        ));
+        cors.setAllowCredentials(true);
         cors.setAllowedMethods(List.of("GET","POST","PUT","PATCH","DELETE","OPTIONS"));
         cors.setAllowedHeaders(List.of(
-                "Content-Type", "Accept", "X-Requested-With",
-                "X-XSRF-TOKEN", "Authorization"
+                "Content-Type","Accept","X-Requested-With","X-XSRF-TOKEN","Authorization"
         ));
-        cors.setAllowCredentials(true); // allow cookies
+        cors.setAllowCredentials(true);
         var source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", cors);
         return source;
     }
+
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http,
@@ -102,7 +106,13 @@ public class SecurityConfig {
 
         http
                 .cors(Customizer.withDefaults())
-                .csrf(csrf -> csrf.csrfTokenRepository(csrfRepo))
+                .csrf(csrf -> csrf
+                        .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
+                        .ignoringRequestMatchers(
+                                new AntPathRequestMatcher("/api/orders", "POST"),
+                                new AntPathRequestMatcher("/api/payments/**")
+                        )
+                )
                 .headers(h -> h
                         .contentSecurityPolicy(csp -> csp.policyDirectives(
                                 "default-src 'self'; img-src 'self' data: https:; script-src 'self'; " +
@@ -181,31 +191,23 @@ public class SecurityConfig {
         }
 
         @Override
-        protected void doFilterInternal(HttpServletRequest request,
-                                        HttpServletResponse response,
-                                        FilterChain chain) throws ServletException, IOException {
-            String token = null;
-            var cookies = request.getCookies();
-            if (cookies != null) {
-                for (Cookie c : cookies) {
-                    if (cookieName.equals(c.getName())) {
-                        token = c.getValue();
-                        break;
-                    }
+        protected void doFilterInternal(HttpServletRequest req, HttpServletResponse res, FilterChain chain)
+                throws ServletException, IOException {
+            try {
+                String token = null;
+                var cookies = req.getCookies();
+                if (cookies != null) {
+                    for (Cookie c : cookies) if (cookieName.equals(c.getName())) { token = c.getValue(); break; }
                 }
-            }
+                if (token != null && jwt.validateToken(token)
+                        && SecurityContextHolder.getContext().getAuthentication() == null) {
+                    var user = users.loadUserByUsername(jwt.getUsername(token));
+                    var auth = new UsernamePasswordAuthenticationToken(user, null, user.getAuthorities());
+                    SecurityContextHolder.getContext().setAuthentication(auth);
+                }
+            } catch (Exception ignored) { /* continue unauthenticated */ }
 
-            if (token != null && jwt.validateToken(token) &&
-                    SecurityContextHolder.getContext().getAuthentication() == null) {
-                String username = jwt.getUsername(token);
-                UserDetails user = users.loadUserByUsername(username);
-                var auth = new UsernamePasswordAuthenticationToken(
-                        user, null, user.getAuthorities()
-                );
-                SecurityContextHolder.getContext().setAuthentication(auth);
-            }
-
-            chain.doFilter(request, response);
+            chain.doFilter(req, res);
         }
     }
 }
