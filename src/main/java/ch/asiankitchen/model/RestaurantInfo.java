@@ -33,10 +33,10 @@ public class RestaurantInfo {
     @Column(name = "email")
     private String email;
 
-    @Column(name = "instagram_url")
+    @Column(name = "instagram_url", columnDefinition = "text")
     private String instagramUrl;
 
-    @Column(name = "google_maps_url")
+    @Column(name = "google_maps_url", columnDefinition = "text")
     private String googleMapsUrl;
 
     @Column(name = "opening_hours", columnDefinition = "TEXT")

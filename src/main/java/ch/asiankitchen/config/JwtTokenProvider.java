@@ -28,7 +28,7 @@ public class JwtTokenProvider {
 
         return Jwts.builder()
                 .setSubject(username)
-                .claim("role", role)
+                .claim("role", role) // e.g. "ROLE_ADMIN" / "ROLE_CUSTOMER"
                 .setIssuedAt(now)
                 .setExpiration(expires)
                 .signWith(secretKey, SignatureAlgorithm.HS256)
@@ -37,10 +37,7 @@ public class JwtTokenProvider {
 
     public boolean validateToken(String token) {
         try {
-            Jwts.parserBuilder()
-                    .setSigningKey(secretKey)
-                    .build()
-                    .parseClaimsJws(token);
+            Jwts.parserBuilder().setSigningKey(secretKey).build().parseClaimsJws(token);
             return true;
         } catch (JwtException | IllegalArgumentException ex) {
             return false;
@@ -54,5 +51,16 @@ public class JwtTokenProvider {
                 .parseClaimsJws(token)
                 .getBody()
                 .getSubject();
+    }
+
+    /** Returns the "role" claim as stored (e.g. "ROLE_ADMIN"). */
+    public String getRole(String token) {
+        Claims claims = Jwts.parserBuilder()
+                .setSigningKey(secretKey)
+                .build()
+                .parseClaimsJws(token)
+                .getBody();
+        Object r = claims.get("role");
+        return (r != null) ? r.toString() : null;
     }
 }
