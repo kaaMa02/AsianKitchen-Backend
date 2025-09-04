@@ -1,30 +1,17 @@
 package ch.asiankitchen.service;
 
 import ch.asiankitchen.exception.ResourceNotFoundException;
-import ch.asiankitchen.model.BuffetOrder;
-import ch.asiankitchen.model.CustomerOrder;
-import ch.asiankitchen.model.OrderStatus;
-import ch.asiankitchen.model.PaymentStatus;
+import ch.asiankitchen.model.*;
 import ch.asiankitchen.repository.BuffetOrderRepository;
 import ch.asiankitchen.repository.CustomerOrderRepository;
-
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
-
 import com.stripe.Stripe;
 import com.stripe.exception.SignatureVerificationException;
 import com.stripe.exception.StripeException;
+import com.stripe.model.Charge;
 import com.stripe.model.Event;
 import com.stripe.model.PaymentIntent;
-import com.stripe.model.Charge;
-import com.stripe.model.tax.Calculation;
-import com.stripe.model.EventDataObjectDeserializer;
-
 import com.stripe.net.Webhook;
-
 import com.stripe.param.PaymentIntentCreateParams;
-import com.stripe.param.tax.CalculationCreateParams;
-
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -33,7 +20,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.util.*;
+import java.util.Optional;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -48,65 +36,50 @@ public class PaymentService {
     @Value("${stripe.currency:chf}")
     private String currency;
 
+    /** VAT rate in percent (e.g., 2.6 for 2.60%). Only applied to takeaway/delivery totals. */
+    @Value("${vat.ratePercent:2.6}")
+    private BigDecimal vatRatePercent;
+
     @PostConstruct
     void init() {
         Stripe.apiKey = secretKey;
     }
 
-    /** Small holder so controller can return amounts as well. */
-    public static class CreatedIntent {
-        private final PaymentIntent intent;
-        private final Calculation calc;
-        public CreatedIntent(PaymentIntent intent, Calculation calc) {
-            this.intent = intent; this.calc = calc;
-        }
-        public PaymentIntent getIntent() { return intent; }
-        public Calculation getCalc() { return calc; }
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────────
-    //  CUSTOMER ORDER
-    // ─────────────────────────────────────────────────────────────────────────────
+    // ───────────────────────────────────────────────────────────────────────────
+    // CUSTOMER ORDER
+    // ───────────────────────────────────────────────────────────────────────────
     @Transactional
-    public CreatedIntent createIntentForCustomerOrder(UUID id) throws StripeException {
+    public PaymentIntent createIntentForCustomerOrder(UUID id) throws StripeException {
         CustomerOrder order = customerOrderRepo.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("CustomerOrder", id));
 
-        CalculationCreateParams.Builder calcBuilder = baseCalculation(order);
+        // Recompute SUBTOTAL (pre-tax) from items/prices on the server
+        BigDecimal subtotal = order.getOrderItems().stream()
+                .map(oi -> {
+                    BigDecimal price = Optional.ofNullable(oi.getMenuItem().getPrice()).orElse(BigDecimal.ZERO);
+                    return price.multiply(BigDecimal.valueOf(oi.getQuantity()));
+                })
+                .reduce(BigDecimal.ZERO, BigDecimal::add)
+                .setScale(2, RoundingMode.HALF_UP);
 
-        order.getOrderItems().forEach(oi -> {
-            BigDecimal price = Optional.ofNullable(oi.getMenuItem().getPrice()).orElse(BigDecimal.ZERO);
-            int qty = Optional.ofNullable(oi.getQuantity()).orElse(0);
-            long amountMinor = toMinor(price.multiply(BigDecimal.valueOf(qty)));
+        // VAT 2.60% (configurable)
+        BigDecimal vat = applyVat(order.getOrderType(), subtotal);
+        BigDecimal total = subtotal.add(vat).setScale(2, RoundingMode.HALF_UP);
 
-            calcBuilder.addLineItem(
-                    CalculationCreateParams.LineItem.builder()
-                            .setAmount(amountMinor) // VAT-inclusive line amount
-                            .setQuantity((long) qty)
-                            .setReference(
-                                    oi.getMenuItem() != null && oi.getMenuItem().getId() != null
-                                            ? oi.getMenuItem().getId().toString()
-                                            : "item"
-                            )
-                            .setTaxBehavior(CalculationCreateParams.LineItem.TaxBehavior.INCLUSIVE)
-                            .build()
-            );
-        });
+        // Persist the total INCL. VAT (if you later add a tax column, store vat there too)
+        order.setTotalPrice(total);
+        customerOrderRepo.save(order);
 
-        Calculation calc = Calculation.create(calcBuilder.build());
-
-        long amountTotal = calc.getAmountTotal(); // always present
-        enforceStripeMin(amountTotal);
+        long amountMinor = toMinor(total);
+        enforceStripeMinimum(amountMinor);
 
         PaymentIntentCreateParams params = PaymentIntentCreateParams.builder()
-                .setAmount(amountTotal)
+                .setAmount(amountMinor)
                 .setCurrency(currency)
                 .setAutomaticPaymentMethods(
                         PaymentIntentCreateParams.AutomaticPaymentMethods.builder()
                                 .setEnabled(true)
-                                .setAllowRedirects(
-                                        PaymentIntentCreateParams.AutomaticPaymentMethods.AllowRedirects.NEVER
-                                )
+                                .setAllowRedirects(PaymentIntentCreateParams.AutomaticPaymentMethods.AllowRedirects.NEVER)
                                 .build()
                 )
                 .putMetadata("type", "customer")
@@ -119,43 +92,37 @@ public class PaymentService {
         order.setPaymentStatus(PaymentStatus.REQUIRES_PAYMENT_METHOD);
         customerOrderRepo.save(order);
 
-        return new CreatedIntent(intent, calc);
+        return intent;
     }
 
-    // ─────────────────────────────────────────────────────────────────────────────
-    //  BUFFET ORDER
-    // ─────────────────────────────────────────────────────────────────────────────
+    // ───────────────────────────────────────────────────────────────────────────
+    // BUFFET ORDER
+    // ───────────────────────────────────────────────────────────────────────────
     @Transactional
-    public CreatedIntent createIntentForBuffetOrder(UUID id) throws StripeException {
+    public PaymentIntent createIntentForBuffetOrder(UUID id) throws StripeException {
         BuffetOrder order = buffetOrderRepo.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("BuffetOrder", id));
 
-        CalculationCreateParams.Builder calcBuilder = baseCalculation(order);
+        // Use the order's current total as SUBTOTAL (pre-tax). If you prefer, recompute from items instead.
+        BigDecimal subtotal = Optional.ofNullable(order.getTotalPrice()).orElse(BigDecimal.ZERO)
+                .setScale(2, RoundingMode.HALF_UP);
 
-        long totalMinor = toMinor(order.getTotalPrice());
-        calcBuilder.addLineItem(
-                CalculationCreateParams.LineItem.builder()
-                        .setAmount(totalMinor)
-                        .setQuantity(1L)
-                        .setReference("buffet_total")
-                        .setTaxBehavior(CalculationCreateParams.LineItem.TaxBehavior.INCLUSIVE)
-                        .build()
-        );
+        BigDecimal vat = applyVat(order.getOrderType(), subtotal);
+        BigDecimal total = subtotal.add(vat).setScale(2, RoundingMode.HALF_UP);
 
-        Calculation calc = Calculation.create(calcBuilder.build());
+        order.setTotalPrice(total);
+        buffetOrderRepo.save(order);
 
-        long amountTotal = calc.getAmountTotal();
-        enforceStripeMin(amountTotal);
+        long amountMinor = toMinor(total);
+        enforceStripeMinimum(amountMinor);
 
         PaymentIntentCreateParams params = PaymentIntentCreateParams.builder()
-                .setAmount(amountTotal)
+                .setAmount(amountMinor)
                 .setCurrency(currency)
                 .setAutomaticPaymentMethods(
                         PaymentIntentCreateParams.AutomaticPaymentMethods.builder()
                                 .setEnabled(true)
-                                .setAllowRedirects(
-                                        PaymentIntentCreateParams.AutomaticPaymentMethods.AllowRedirects.NEVER
-                                )
+                                .setAllowRedirects(PaymentIntentCreateParams.AutomaticPaymentMethods.AllowRedirects.NEVER)
                                 .build()
                 )
                 .putMetadata("type", "buffet")
@@ -168,12 +135,12 @@ public class PaymentService {
         order.setPaymentStatus(PaymentStatus.REQUIRES_PAYMENT_METHOD);
         buffetOrderRepo.save(order);
 
-        return new CreatedIntent(intent, calc);
+        return intent;
     }
 
-    // ─────────────────────────────────────────────────────────────────────────────
-    //  WEBHOOKS (unchanged logic)
-    // ─────────────────────────────────────────────────────────────────────────────
+    // ───────────────────────────────────────────────────────────────────────────
+    // WEBHOOK HANDLER
+    // ───────────────────────────────────────────────────────────────────────────
     @Transactional
     public void handleWebhook(String payload, String signatureHeader, String webhookSecret)
             throws SignatureVerificationException {
@@ -182,50 +149,29 @@ public class PaymentService {
 
         switch (event.getType()) {
             case "payment_intent.succeeded" -> {
-                String piId = extractPaymentIntentId(event);
-                if (piId != null) updateByPaymentIntent(piId, PaymentStatus.SUCCEEDED);
+                PaymentIntent pi = (PaymentIntent) event.getDataObjectDeserializer()
+                        .getObject().orElse(null);
+                if (pi != null) updateByPaymentIntent(pi.getId(), PaymentStatus.SUCCEEDED);
             }
             case "payment_intent.payment_failed" -> {
-                String piId = extractPaymentIntentId(event);
-                if (piId != null) updateByPaymentIntent(piId, PaymentStatus.FAILED);
+                PaymentIntent pi = (PaymentIntent) event.getDataObjectDeserializer()
+                        .getObject().orElse(null);
+                if (pi != null) updateByPaymentIntent(pi.getId(), PaymentStatus.FAILED);
             }
             case "charge.succeeded" -> {
-                String piId = extractPaymentIntentIdFromCharge(event);
-                if (piId != null) updateByPaymentIntent(piId, PaymentStatus.SUCCEEDED);
+                Charge ch = (Charge) event.getDataObjectDeserializer().getObject().orElse(null);
+                if (ch != null && ch.getPaymentIntent() != null) {
+                    updateByPaymentIntent(ch.getPaymentIntent(), PaymentStatus.SUCCEEDED);
+                }
             }
             case "charge.failed" -> {
-                String piId = extractPaymentIntentIdFromCharge(event);
-                if (piId != null) updateByPaymentIntent(piId, PaymentStatus.FAILED);
+                Charge ch = (Charge) event.getDataObjectDeserializer().getObject().orElse(null);
+                if (ch != null && ch.getPaymentIntent() != null) {
+                    updateByPaymentIntent(ch.getPaymentIntent(), PaymentStatus.FAILED);
+                }
             }
-            default -> { /* ignore */ }
+            default -> { /* ignore others */ }
         }
-    }
-
-    private String extractPaymentIntentId(Event event) {
-        EventDataObjectDeserializer d = event.getDataObjectDeserializer();
-        if (d.getObject().isPresent() && d.getObject().get() instanceof PaymentIntent pi) {
-            return pi.getId();
-        }
-        String raw = d.getRawJson();
-        if (raw != null) {
-            JsonObject o = JsonParser.parseString(raw).getAsJsonObject();
-            if (o.has("id")) return o.get("id").getAsString();
-            if (o.has("payment_intent")) return o.get("payment_intent").getAsString();
-        }
-        return null;
-    }
-
-    private String extractPaymentIntentIdFromCharge(Event event) {
-        EventDataObjectDeserializer d = event.getDataObjectDeserializer();
-        if (d.getObject().isPresent() && d.getObject().get() instanceof Charge ch) {
-            return ch.getPaymentIntent();
-        }
-        String raw = d.getRawJson();
-        if (raw != null) {
-            JsonObject o = JsonParser.parseString(raw).getAsJsonObject();
-            if (o.has("payment_intent")) return o.get("payment_intent").getAsString();
-        }
-        return null;
     }
 
     private void updateByPaymentIntent(String paymentIntentId, PaymentStatus status) {
@@ -236,6 +182,7 @@ public class PaymentService {
             }
             customerOrderRepo.save(o);
         });
+
         buffetOrderRepo.findByPaymentIntentId(paymentIntentId).ifPresent(o -> {
             o.setPaymentStatus(status);
             if (status == PaymentStatus.SUCCEEDED && o.getStatus() == OrderStatus.NEW) {
@@ -245,127 +192,26 @@ public class PaymentService {
         });
     }
 
-    // ─────────────────────────────────────────────────────────────────────────────
-    //  Helpers
-    // ─────────────────────────────────────────────────────────────────────────────
+    // ───────────────────────────────────────────────────────────────────────────
+    // HELPERS
+    // ───────────────────────────────────────────────────────────────────────────
+    private BigDecimal applyVat(OrderType orderType, BigDecimal subtotal) {
+        // Only for TAKEAWAY/DELIVERY — change if you want dine-in too.
+        boolean taxable = (orderType == OrderType.TAKEAWAY || orderType == OrderType.DELIVERY);
+        if (!taxable) return BigDecimal.ZERO;
 
-    /** Sum tax from breakdown (works across SDK versions). */
-    public long calcTaxAmount(Calculation calc) {
-        if (calc.getTaxBreakdown() == null) return 0L;
-        long sum = 0L;
-        for (var tb : calc.getTaxBreakdown()) {
-            // old/new SDKs expose amount as getAmount()
-            Long a = tb.getAmount();
-            if (a != null) sum += a;
-        }
-        return sum;
+        BigDecimal rate = vatRatePercent
+                .divide(BigDecimal.valueOf(100), 6, RoundingMode.HALF_UP); // 0.026000 for 2.60%
+        return subtotal.multiply(rate).setScale(2, RoundingMode.HALF_UP);
     }
 
-    /** Try to read the VAT % from rate details; fallback to tax/net. */
-    public Double extractVatRatePct(Calculation calc) {
-        try {
-            if (calc.getTaxBreakdown() != null && !calc.getTaxBreakdown().isEmpty()) {
-                var details = calc.getTaxBreakdown().get(0).getTaxRateDetails();
-                if (details != null) {
-                    // Some SDKs expose percentage as decimal-string
-                    String pctStr = null;
-                    try {
-                        // try percentageDecimal() first (newer)
-                        var m = details.getClass().getMethod("getPercentageDecimal");
-                        Object v = m.invoke(details);
-                        pctStr = (v instanceof String) ? (String) v : null;
-                    } catch (NoSuchMethodException ignore) {
-                        // fallback: try getPercentage() (older/newer API)
-                        try {
-                            var m2 = details.getClass().getMethod("getPercentage");
-                            Object v2 = m2.invoke(details);
-                            if (v2 instanceof Number n) return n.doubleValue();
-                        } catch (Exception ignore2) { /* fall through */ }
-                    }
-                    if (pctStr != null) {
-                        return Double.parseDouble(pctStr);
-                    }
-                }
-            }
-        } catch (Exception ignore) {}
-
-        long total = calc.getAmountTotal();
-        long tax = calcTaxAmount(calc);
-        long net = Math.max(0L, total - tax);
-        if (net > 0) return (tax * 100.0) / net;
-        return null;
+    private long toMinor(BigDecimal amountChf) {
+        return amountChf.movePointRight(2).setScale(0, RoundingMode.HALF_UP).longValueExact();
     }
 
-    /** Convert CHF to rappen (minor units). */
-    private static long toMinor(BigDecimal chf) {
-        if (chf == null) return 0L;
-        return chf.movePointRight(2).setScale(0, RoundingMode.HALF_UP).longValueExact();
-    }
-
-    private void enforceStripeMin(long minor) {
-        if ("chf".equalsIgnoreCase(currency) && minor < 50L) {
+    private void enforceStripeMinimum(long amountMinor) {
+        if ("chf".equalsIgnoreCase(currency) && amountMinor < 50L) {
             throw new IllegalArgumentException("Order total is below Stripe minimum charge for CHF (0.50).");
         }
-    }
-
-    /** Build the Calculation base with currency + customer address (CH). */
-    private CalculationCreateParams.Builder baseCalculation(CustomerOrder order) {
-        var b = CalculationCreateParams.builder().setCurrency(currency.toLowerCase());
-        var info = order.getCustomerInfo();
-        if (info != null && info.getAddress() != null) {
-            var a = info.getAddress();
-            b.setCustomerDetails(
-                    CalculationCreateParams.CustomerDetails.builder()
-                            .setAddress(
-                                    CalculationCreateParams.CustomerDetails.Address.builder()
-                                            .setCountry("CH")
-                                            .setCity(a.getCity())
-                                            .setPostalCode(a.getPlz())
-                                            .setLine1(
-                                                    (a.getStreet() != null ? a.getStreet() : "") +
-                                                            (a.getStreetNo() != null ? " " + a.getStreetNo() : "")
-                                            )
-                                            .build()
-                            ).build()
-            );
-        } else {
-            b.setCustomerDetails(
-                    CalculationCreateParams.CustomerDetails.builder()
-                            .setAddress(CalculationCreateParams.CustomerDetails.Address.builder()
-                                    .setCountry("CH").build()
-                            ).build()
-            );
-        }
-        return b;
-    }
-
-    private CalculationCreateParams.Builder baseCalculation(BuffetOrder order) {
-        var b = CalculationCreateParams.builder().setCurrency(currency.toLowerCase());
-        var info = order.getCustomerInfo();
-        if (info != null && info.getAddress() != null) {
-            var a = info.getAddress();
-            b.setCustomerDetails(
-                    CalculationCreateParams.CustomerDetails.builder()
-                            .setAddress(
-                                    CalculationCreateParams.CustomerDetails.Address.builder()
-                                            .setCountry("CH")
-                                            .setCity(a.getCity())
-                                            .setPostalCode(a.getPlz())
-                                            .setLine1(
-                                                    (a.getStreet() != null ? a.getStreet() : "") +
-                                                            (a.getStreetNo() != null ? " " + a.getStreetNo() : "")
-                                            )
-                                            .build()
-                            ).build()
-            );
-        } else {
-            b.setCustomerDetails(
-                    CalculationCreateParams.CustomerDetails.builder()
-                            .setAddress(CalculationCreateParams.CustomerDetails.Address.builder()
-                                    .setCountry("CH").build()
-                            ).build()
-            );
-        }
-        return b;
     }
 }
