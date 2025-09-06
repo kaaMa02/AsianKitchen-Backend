@@ -53,25 +53,43 @@ public class PaymentService {
         CustomerOrder order = customerOrderRepo.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("CustomerOrder", id));
 
-        // Recompute SUBTOTAL (pre-tax) from items/prices on the server
+        // 1) Subtotal from items
         BigDecimal subtotal = order.getOrderItems().stream()
                 .map(oi -> {
                     BigDecimal price = Optional.ofNullable(oi.getMenuItem().getPrice()).orElse(BigDecimal.ZERO);
                     return price.multiply(BigDecimal.valueOf(oi.getQuantity()));
                 })
-                .reduce(BigDecimal.ZERO, BigDecimal::add)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        // 2) Delivery fee rule (owners’ rule)
+        BigDecimal deliveryFee = BigDecimal.ZERO;
+        if (order.getOrderType() == OrderType.DELIVERY) {
+            // > 50 CHF → 5 CHF ; 25–50 CHF (strictly >25 and <50) → 3 CHF ; ≤25 CHF → 0 CHF
+            if (subtotal.compareTo(new BigDecimal("50.00")) > 0) {
+                deliveryFee = new BigDecimal("5.00");
+            } else if (subtotal.compareTo(new BigDecimal("25.00")) > 0) {
+                deliveryFee = new BigDecimal("3.00");
+            }
+        }
+
+        // 3) VAT (2.6%) on food subtotal only
+        BigDecimal vat = subtotal.multiply(new BigDecimal("0.026"))
                 .setScale(2, RoundingMode.HALF_UP);
 
-        // VAT 2.60% (configurable)
-        BigDecimal vat = applyVat(order.getOrderType(), subtotal);
-        BigDecimal total = subtotal.add(vat).setScale(2, RoundingMode.HALF_UP);
+        // 4) Final total charged
+        BigDecimal grandTotal = subtotal.add(deliveryFee).add(vat);
 
-        // Persist the total INCL. VAT (if you later add a tax column, store vat there too)
-        order.setTotalPrice(total);
+        // Persist the subtotal as your order’s totalPrice (no schema change).
+        order.setTotalPrice(subtotal);
+        order.setPaymentStatus(PaymentStatus.REQUIRES_PAYMENT_METHOD);
         customerOrderRepo.save(order);
 
-        long amountMinor = toMinor(total);
-        enforceStripeMinimum(amountMinor);
+        long amountMinor = grandTotal.movePointRight(2).setScale(0, RoundingMode.HALF_UP).longValueExact();
+
+        // Stripe minimum for CHF
+        if ("chf".equalsIgnoreCase(currency) && amountMinor < 50L) {
+            throw new IllegalArgumentException("Order total is below Stripe minimum charge for CHF (0.50).");
+        }
 
         PaymentIntentCreateParams params = PaymentIntentCreateParams.builder()
                 .setAmount(amountMinor)
@@ -84,37 +102,50 @@ public class PaymentService {
                 )
                 .putMetadata("type", "customer")
                 .putMetadata("orderId", order.getId().toString())
+                // Optional: surface components for later reporting
+                .putMetadata("subtotal_chf", subtotal.toPlainString())
+                .putMetadata("delivery_fee_chf", deliveryFee.toPlainString())
+                .putMetadata("vat_chf", vat.toPlainString())
                 .build();
 
         PaymentIntent intent = PaymentIntent.create(params);
-
         order.setPaymentIntentId(intent.getId());
-        order.setPaymentStatus(PaymentStatus.REQUIRES_PAYMENT_METHOD);
         customerOrderRepo.save(order);
 
         return intent;
     }
 
     // ───────────────────────────────────────────────────────────────────────────
-    // BUFFET ORDER
+    // Buffet ORDER
     // ───────────────────────────────────────────────────────────────────────────
     @Transactional
     public PaymentIntent createIntentForBuffetOrder(UUID id) throws StripeException {
         BuffetOrder order = buffetOrderRepo.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("BuffetOrder", id));
 
-        // Use the order's current total as SUBTOTAL (pre-tax). If you prefer, recompute from items instead.
-        BigDecimal subtotal = Optional.ofNullable(order.getTotalPrice()).orElse(BigDecimal.ZERO)
+        BigDecimal subtotal = Optional.ofNullable(order.getTotalPrice()).orElse(BigDecimal.ZERO);
+
+        BigDecimal deliveryFee = BigDecimal.ZERO;
+        if (order.getOrderType() == OrderType.DELIVERY) {
+            if (subtotal.compareTo(new BigDecimal("50.00")) > 0) {
+                deliveryFee = new BigDecimal("5.00");
+            } else if (subtotal.compareTo(new BigDecimal("25.00")) > 0) {
+                deliveryFee = new BigDecimal("3.00");
+            }
+        }
+
+        BigDecimal vat = subtotal.multiply(new BigDecimal("0.026"))
                 .setScale(2, RoundingMode.HALF_UP);
 
-        BigDecimal vat = applyVat(order.getOrderType(), subtotal);
-        BigDecimal total = subtotal.add(vat).setScale(2, RoundingMode.HALF_UP);
+        BigDecimal grandTotal = subtotal.add(deliveryFee).add(vat);
 
-        order.setTotalPrice(total);
+        order.setPaymentStatus(PaymentStatus.REQUIRES_PAYMENT_METHOD);
         buffetOrderRepo.save(order);
 
-        long amountMinor = toMinor(total);
-        enforceStripeMinimum(amountMinor);
+        long amountMinor = grandTotal.movePointRight(2).setScale(0, RoundingMode.HALF_UP).longValueExact();
+        if ("chf".equalsIgnoreCase(currency) && amountMinor < 50L) {
+            throw new IllegalArgumentException("Order total is below Stripe minimum charge for CHF (0.50).");
+        }
 
         PaymentIntentCreateParams params = PaymentIntentCreateParams.builder()
                 .setAmount(amountMinor)
@@ -127,12 +158,13 @@ public class PaymentService {
                 )
                 .putMetadata("type", "buffet")
                 .putMetadata("orderId", order.getId().toString())
+                .putMetadata("subtotal_chf", subtotal.toPlainString())
+                .putMetadata("delivery_fee_chf", deliveryFee.toPlainString())
+                .putMetadata("vat_chf", vat.toPlainString())
                 .build();
 
         PaymentIntent intent = PaymentIntent.create(params);
-
         order.setPaymentIntentId(intent.getId());
-        order.setPaymentStatus(PaymentStatus.REQUIRES_PAYMENT_METHOD);
         buffetOrderRepo.save(order);
 
         return intent;
