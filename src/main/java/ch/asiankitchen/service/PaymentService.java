@@ -36,7 +36,7 @@ public class PaymentService {
     @Value("${stripe.currency:chf}")
     private String currency;
 
-    /** VAT rate in percent (e.g., 2.6 for 2.60%). Only applied to takeaway/delivery totals. */
+    /** VAT rate in percent (e.g. 2.6 for 2.60%). Applies to TAKEAWAY & DELIVERY. */
     @Value("${vat.ratePercent:2.6}")
     private BigDecimal vatRatePercent;
 
@@ -53,43 +53,28 @@ public class PaymentService {
         CustomerOrder order = customerOrderRepo.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("CustomerOrder", id));
 
-        // 1) Subtotal from items
-        BigDecimal subtotal = order.getOrderItems().stream()
+        // 1) Items subtotal (server-authoritative)
+        BigDecimal items = order.getOrderItems().stream()
                 .map(oi -> {
                     BigDecimal price = Optional.ofNullable(oi.getMenuItem().getPrice()).orElse(BigDecimal.ZERO);
                     return price.multiply(BigDecimal.valueOf(oi.getQuantity()));
                 })
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        // 2) Delivery fee rule (owners’ rule)
-        BigDecimal deliveryFee = BigDecimal.ZERO;
-        if (order.getOrderType() == OrderType.DELIVERY) {
-            // > 50 CHF → 5 CHF ; 25–50 CHF (strictly >25 and <50) → 3 CHF ; ≤25 CHF → 0 CHF
-            if (subtotal.compareTo(new BigDecimal("50.00")) > 0) {
-                deliveryFee = new BigDecimal("5.00");
-            } else if (subtotal.compareTo(new BigDecimal("25.00")) > 0) {
-                deliveryFee = new BigDecimal("3.00");
-            }
-        }
+        // 2) VAT (2.6%) on items
+        BigDecimal vat = calcVat(order.getOrderType(), items);
 
-        // 3) VAT (2.6%) on food subtotal only
-        BigDecimal vat = subtotal.multiply(new BigDecimal("0.026"))
-                .setScale(2, RoundingMode.HALF_UP);
+        // 3) Delivery fee (based on items subtotal)
+        BigDecimal deliveryFee = calcDeliveryFee(order.getOrderType(), items);
 
-        // 4) Final total charged
-        BigDecimal grandTotal = subtotal.add(deliveryFee).add(vat);
+        // 4) Grand total: items + VAT + delivery
+        BigDecimal grand = items.add(vat).add(deliveryFee);
 
-        // Persist the subtotal as your order’s totalPrice (no schema change).
-        order.setTotalPrice(subtotal);
-        order.setPaymentStatus(PaymentStatus.REQUIRES_PAYMENT_METHOD);
+        order.setTotalPrice(grand);
         customerOrderRepo.save(order);
 
-        long amountMinor = grandTotal.movePointRight(2).setScale(0, RoundingMode.HALF_UP).longValueExact();
-
-        // Stripe minimum for CHF
-        if ("chf".equalsIgnoreCase(currency) && amountMinor < 50L) {
-            throw new IllegalArgumentException("Order total is below Stripe minimum charge for CHF (0.50).");
-        }
+        long amountMinor = toMinor(grand);
+        enforceStripeMinimum(amountMinor);
 
         PaymentIntentCreateParams params = PaymentIntentCreateParams.builder()
                 .setAmount(amountMinor)
@@ -102,50 +87,37 @@ public class PaymentService {
                 )
                 .putMetadata("type", "customer")
                 .putMetadata("orderId", order.getId().toString())
-                // Optional: surface components for later reporting
-                .putMetadata("subtotal_chf", subtotal.toPlainString())
-                .putMetadata("delivery_fee_chf", deliveryFee.toPlainString())
-                .putMetadata("vat_chf", vat.toPlainString())
                 .build();
 
         PaymentIntent intent = PaymentIntent.create(params);
-        order.setPaymentIntentId(intent.getId());
-        customerOrderRepo.save(order);
 
+        order.setPaymentIntentId(intent.getId());
+        order.setPaymentStatus(PaymentStatus.REQUIRES_PAYMENT_METHOD);
+        customerOrderRepo.save(order);
         return intent;
     }
 
     // ───────────────────────────────────────────────────────────────────────────
-    // Buffet ORDER
+    // BUFFET ORDER
     // ───────────────────────────────────────────────────────────────────────────
     @Transactional
     public PaymentIntent createIntentForBuffetOrder(UUID id) throws StripeException {
         BuffetOrder order = buffetOrderRepo.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("BuffetOrder", id));
 
-        BigDecimal subtotal = Optional.ofNullable(order.getTotalPrice()).orElse(BigDecimal.ZERO);
+        // If your BuffetOrder keeps items similarly to CustomerOrder, recompute like above.
+        // Otherwise assume order.getTotalPrice() currently represents *items subtotal*.
+        BigDecimal items = Optional.ofNullable(order.getTotalPrice()).orElse(BigDecimal.ZERO);
 
-        BigDecimal deliveryFee = BigDecimal.ZERO;
-        if (order.getOrderType() == OrderType.DELIVERY) {
-            if (subtotal.compareTo(new BigDecimal("50.00")) > 0) {
-                deliveryFee = new BigDecimal("5.00");
-            } else if (subtotal.compareTo(new BigDecimal("25.00")) > 0) {
-                deliveryFee = new BigDecimal("3.00");
-            }
-        }
+        BigDecimal vat = calcVat(order.getOrderType(), items);
+        BigDecimal deliveryFee = calcDeliveryFee(order.getOrderType(), items);
+        BigDecimal grand = items.add(vat).add(deliveryFee);
 
-        BigDecimal vat = subtotal.multiply(new BigDecimal("0.026"))
-                .setScale(2, RoundingMode.HALF_UP);
-
-        BigDecimal grandTotal = subtotal.add(deliveryFee).add(vat);
-
-        order.setPaymentStatus(PaymentStatus.REQUIRES_PAYMENT_METHOD);
+        order.setTotalPrice(grand);
         buffetOrderRepo.save(order);
 
-        long amountMinor = grandTotal.movePointRight(2).setScale(0, RoundingMode.HALF_UP).longValueExact();
-        if ("chf".equalsIgnoreCase(currency) && amountMinor < 50L) {
-            throw new IllegalArgumentException("Order total is below Stripe minimum charge for CHF (0.50).");
-        }
+        long amountMinor = toMinor(grand);
+        enforceStripeMinimum(amountMinor);
 
         PaymentIntentCreateParams params = PaymentIntentCreateParams.builder()
                 .setAmount(amountMinor)
@@ -158,20 +130,18 @@ public class PaymentService {
                 )
                 .putMetadata("type", "buffet")
                 .putMetadata("orderId", order.getId().toString())
-                .putMetadata("subtotal_chf", subtotal.toPlainString())
-                .putMetadata("delivery_fee_chf", deliveryFee.toPlainString())
-                .putMetadata("vat_chf", vat.toPlainString())
                 .build();
 
         PaymentIntent intent = PaymentIntent.create(params);
-        order.setPaymentIntentId(intent.getId());
-        buffetOrderRepo.save(order);
 
+        order.setPaymentIntentId(intent.getId());
+        order.setPaymentStatus(PaymentStatus.REQUIRES_PAYMENT_METHOD);
+        buffetOrderRepo.save(order);
         return intent;
     }
 
     // ───────────────────────────────────────────────────────────────────────────
-    // WEBHOOK HANDLER
+    // WEBHOOK HANDLER (status -> orders)
     // ───────────────────────────────────────────────────────────────────────────
     @Transactional
     public void handleWebhook(String payload, String signatureHeader, String webhookSecret)
@@ -227,14 +197,30 @@ public class PaymentService {
     // ───────────────────────────────────────────────────────────────────────────
     // HELPERS
     // ───────────────────────────────────────────────────────────────────────────
-    private BigDecimal applyVat(OrderType orderType, BigDecimal subtotal) {
-        // Only for TAKEAWAY/DELIVERY — change if you want dine-in too.
+    private BigDecimal calcVat(OrderType orderType, BigDecimal itemsSubtotal) {
+        // Owner wants VAT for TAKEAWAY + DELIVERY
         boolean taxable = (orderType == OrderType.TAKEAWAY || orderType == OrderType.DELIVERY);
         if (!taxable) return BigDecimal.ZERO;
 
         BigDecimal rate = vatRatePercent
-                .divide(BigDecimal.valueOf(100), 6, RoundingMode.HALF_UP); // 0.026000 for 2.60%
-        return subtotal.multiply(rate).setScale(2, RoundingMode.HALF_UP);
+                .divide(BigDecimal.valueOf(100), 6, RoundingMode.HALF_UP); // e.g. 0.026000
+        return itemsSubtotal.multiply(rate).setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private BigDecimal calcDeliveryFee(OrderType orderType, BigDecimal itemsSubtotal) {
+        if (orderType != OrderType.DELIVERY) return BigDecimal.ZERO;
+
+        // As requested:
+        // > CHF 25 and < CHF 50 => CHF 3
+        // > CHF 50             => CHF 5
+        // else                  => CHF 0
+        if (itemsSubtotal.compareTo(new BigDecimal("25.00")) > 0
+                && itemsSubtotal.compareTo(new BigDecimal("50.00")) < 0) {
+            return new BigDecimal("3.00");
+        } else if (itemsSubtotal.compareTo(new BigDecimal("50.00")) > 0) {
+            return new BigDecimal("5.00");
+        }
+        return BigDecimal.ZERO;
     }
 
     private long toMinor(BigDecimal amountChf) {
@@ -242,6 +228,7 @@ public class PaymentService {
     }
 
     private void enforceStripeMinimum(long amountMinor) {
+        // Stripe min for CHF is 50 (0.50 CHF)
         if ("chf".equalsIgnoreCase(currency) && amountMinor < 50L) {
             throw new IllegalArgumentException("Order total is below Stripe minimum charge for CHF (0.50).");
         }
