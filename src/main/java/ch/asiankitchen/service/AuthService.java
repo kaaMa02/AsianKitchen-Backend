@@ -19,6 +19,7 @@ public class AuthService {
         this.encoder = encoder;
     }
 
+
     @Transactional
     public UserReadDTO register(RegisterRequestDTO dto) {
         if (repo.existsByUsername(dto.getUsername())) {

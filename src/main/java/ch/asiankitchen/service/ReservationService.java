@@ -80,4 +80,12 @@ public class ReservationService {
                 .map(ReservationReadDTO::fromEntity)
                 .orElseThrow(() -> new ResourceNotFoundException("Reservation", id));
     }
+
+    @Transactional(readOnly = true)
+    public List<ReservationReadDTO> listByStatus(ReservationStatus status) {
+        return repo.findAllByStatusOrderByCreatedAtDesc(status)
+                .stream()
+                .map(ReservationReadDTO::fromEntity)
+                .toList();
+    }
 }
