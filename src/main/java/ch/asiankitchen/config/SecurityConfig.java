@@ -108,10 +108,14 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf
                         .csrfTokenRepository(csrfRepo)
                         .ignoringRequestMatchers(
+                                new AntPathRequestMatcher("/api/auth/**"),
+                                new AntPathRequestMatcher("/api/reservations"),
+                                new AntPathRequestMatcher("/api/contact"),
                                 new AntPathRequestMatcher("/api/orders", "POST"),
                                 new AntPathRequestMatcher("/api/payments/**")
                         )
                 )
+
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authenticationProvider(daoAuthProvider())
                 .addFilterBefore(cookieJwtFilter, UsernamePasswordAuthenticationFilter.class) // <-- keep only once
