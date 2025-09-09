@@ -20,8 +20,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.util.Optional;
-import java.util.UUID;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -40,9 +40,23 @@ public class PaymentService {
     @Value("${vat.ratePercent:2.6}")
     private BigDecimal vatRatePercent;
 
+    /** Delivery zone config injected from application properties / env. */
+    @Value("${app.delivery.allowed-plz:}")
+    private String allowedPlzCsv;
+
+    @Value("${app.delivery.reject-message:We don’t deliver to this address.}")
+    private String rejectMessage;
+
+    /** Parsed set of allowed PLZ codes. */
+    private Set<String> allowedPlz;
+
     @PostConstruct
     void init() {
         Stripe.apiKey = secretKey;
+        allowedPlz = Arrays.stream(allowedPlzCsv.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .collect(Collectors.toSet());
     }
 
     // ───────────────────────────────────────────────────────────────────────────
@@ -52,6 +66,9 @@ public class PaymentService {
     public PaymentIntent createIntentForCustomerOrder(UUID id) throws StripeException {
         CustomerOrder order = customerOrderRepo.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("CustomerOrder", id));
+
+        // Enforce delivery area if needed (no separate service required)
+        enforceDeliveryZone(order.getOrderType(), order.getCustomerInfo());
 
         // 1) Items subtotal (server-authoritative)
         BigDecimal items = order.getOrderItems().stream()
@@ -104,6 +121,8 @@ public class PaymentService {
     public PaymentIntent createIntentForBuffetOrder(UUID id) throws StripeException {
         BuffetOrder order = buffetOrderRepo.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("BuffetOrder", id));
+
+        enforceDeliveryZone(order.getOrderType(), order.getCustomerInfo());
 
         // If your BuffetOrder keeps items similarly to CustomerOrder, recompute like above.
         // Otherwise assume order.getTotalPrice() currently represents *items subtotal*.
@@ -197,6 +216,21 @@ public class PaymentService {
     // ───────────────────────────────────────────────────────────────────────────
     // HELPERS
     // ───────────────────────────────────────────────────────────────────────────
+    private void enforceDeliveryZone(OrderType orderType, CustomerInfo info) {
+        if (orderType != OrderType.DELIVERY) return;
+
+        String plz = Optional.ofNullable(info)
+                .map(CustomerInfo::getAddress)
+                .map(Address::getPlz)
+                .map(String::trim)
+                .orElse("");
+
+        if (!allowedPlz.contains(plz)) {
+            // Let the controller turn this into a 400
+            throw new IllegalArgumentException(rejectMessage);
+        }
+    }
+
     private BigDecimal calcVat(OrderType orderType, BigDecimal itemsSubtotal) {
         // Owner wants VAT for TAKEAWAY + DELIVERY
         boolean taxable = (orderType == OrderType.TAKEAWAY || orderType == OrderType.DELIVERY);
@@ -210,10 +244,8 @@ public class PaymentService {
     private BigDecimal calcDeliveryFee(OrderType orderType, BigDecimal itemsSubtotal) {
         if (orderType != OrderType.DELIVERY) return BigDecimal.ZERO;
 
-        // As requested:
         // > CHF 25 and < CHF 50 => CHF 3
-        // > CHF 50             => CHF 5
-        // else                  => CHF 0
+        // > CHF 50              => CHF 5
         if (itemsSubtotal.compareTo(new BigDecimal("25.00")) > 0
                 && itemsSubtotal.compareTo(new BigDecimal("50.00")) < 0) {
             return new BigDecimal("3.00");
