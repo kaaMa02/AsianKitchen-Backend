@@ -1,6 +1,8 @@
 package ch.asiankitchen.config;
 
-import io.jsonwebtoken.*;
+import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.security.Keys;
 import org.springframework.beans.factory.annotation.Value;
@@ -28,7 +30,7 @@ public class JwtTokenProvider {
 
         return Jwts.builder()
                 .setSubject(username)
-                .claim("role", role) // e.g. "ROLE_ADMIN" / "ROLE_CUSTOMER"
+                .claim("role", role) // e.g. "ROLE_ADMIN"
                 .setIssuedAt(now)
                 .setExpiration(expires)
                 .signWith(secretKey, SignatureAlgorithm.HS256)
@@ -39,7 +41,7 @@ public class JwtTokenProvider {
         try {
             Jwts.parserBuilder().setSigningKey(secretKey).build().parseClaimsJws(token);
             return true;
-        } catch (JwtException | IllegalArgumentException ex) {
+        } catch (Exception ex) {
             return false;
         }
     }
@@ -53,7 +55,6 @@ public class JwtTokenProvider {
                 .getSubject();
     }
 
-    /** Returns the "role" claim as stored (e.g. "ROLE_ADMIN"). */
     public String getRole(String token) {
         Claims claims = Jwts.parserBuilder()
                 .setSigningKey(secretKey)
@@ -61,6 +62,6 @@ public class JwtTokenProvider {
                 .parseClaimsJws(token)
                 .getBody();
         Object r = claims.get("role");
-        return (r != null) ? r.toString() : null;
+        return r != null ? r.toString() : null;
     }
 }
