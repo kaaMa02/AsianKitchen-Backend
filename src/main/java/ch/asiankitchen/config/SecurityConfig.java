@@ -73,21 +73,14 @@ public class SecurityConfig {
     @Bean
     CorsConfigurationSource corsConfigurationSource() {
         var cors = new CorsConfiguration();
-        cors.setAllowedOrigins(List.of(
-                "https://asian-kitchen.online",
-                "https://www.asian-kitchen.online"
-        ));
+        cors.setAllowedOrigins(Arrays.asList(allowedOrigins)); // ← use the property
         cors.setAllowCredentials(true);
         cors.setAllowedMethods(List.of("GET","POST","PUT","PATCH","DELETE","OPTIONS"));
-        cors.setAllowedHeaders(List.of(
-                "Content-Type","Accept","X-Requested-With","X-XSRF-TOKEN","Authorization"
-        ));
-        cors.setAllowCredentials(true);
+        cors.setAllowedHeaders(List.of("Content-Type","Accept","X-Requested-With","X-XSRF-TOKEN","Authorization"));
         var source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", cors);
         return source;
     }
-
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http,
