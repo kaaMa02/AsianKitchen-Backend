@@ -28,6 +28,7 @@ import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
+import org.springframework.util.StringUtils;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -107,12 +108,14 @@ public class SecurityConfig {
         var cookieJwtFilter = new JwtCookieAuthFilter(jwtTokenProvider, userDetailsService, authCookieName);
 
         var csrfRepo = CookieCsrfTokenRepository.withHttpOnlyFalse();
-        csrfRepo.setCookieCustomizer(c -> c
-                .domain(cookieDomain)    // share with apex + subdomains
-                .path("/")
-                .sameSite(sameSite)      // "None" in prod
-                .secure(cookieSecure)
-        );
+        csrfRepo.setCookieCustomizer(b -> {
+            b.path("/")
+                    .sameSite(sameSite)
+                    .secure(cookieSecure);
+            if (StringUtils.hasText(cookieDomain)) {
+                b.domain(cookieDomain);
+            }
+        });
 
         http
                 .cors(Customizer.withDefaults())
