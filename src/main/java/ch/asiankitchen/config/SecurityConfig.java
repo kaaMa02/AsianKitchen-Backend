@@ -82,29 +82,26 @@ public class SecurityConfig {
 
     /** Shared CookieCsrfTokenRepository so all places use the same cookie settings. */
     @Bean
-    public CookieCsrfTokenRepository csrfTokenRepository() {
-        var repo = CookieCsrfTokenRepository.withHttpOnlyFalse();
+    public CookieCsrfTokenRepository csrfTokenRepository(
+            @Value("${app.security.cookie-secure:true}") boolean cookieSecure,
+            @Value("${app.security.same-site:None}") String sameSite,
+            @Value("${app.security.cookie-domain:}") String cookieDomain
+    ) {
+        CookieCsrfTokenRepository repo = CookieCsrfTokenRepository.withHttpOnlyFalse();
         repo.setCookieCustomizer(b -> {
-            b.path("/").secure(cookieSecure).sameSite(sameSite);
-            if (StringUtils.hasText(cookieDomain)) {
-                // IMPORTANT: value must NOT start with "."
-                b.domain(cookieDomain);
-            }
+            b.path("/").sameSite(sameSite).secure(cookieSecure);
+            if (StringUtils.hasText(cookieDomain)) b.domain(cookieDomain);
         });
         return repo;
     }
 
-    // ---- main security chain (highest precedence) ----
     @Bean
     @Order(0)
     public SecurityFilterChain securityFilterChain(HttpSecurity http,
                                                    CookieCsrfTokenRepository csrfRepo) throws Exception {
-        System.out.println(">>> SecurityConfig active. cookieDomain=" + cookieDomain);
-
         var cookieJwtFilter = new JwtCookieAuthFilter(jwtTokenProvider, userDetailsService, authCookieName);
 
         http
-                // CORS
                 .cors(c -> {
                     var cors = new CorsConfiguration();
                     cors.setAllowCredentials(true);
@@ -122,11 +119,8 @@ public class SecurityConfig {
                     source.registerCorsConfiguration("/**", cors);
                     c.configurationSource(source);
                 })
-
-                // CSRF (use the shared repo)
                 .csrf(csrf -> csrf
                         .csrfTokenRepository(csrfRepo)
-                        // ignore CSRF only where you truly want to allow POSTs without token
                         .ignoringRequestMatchers(
                                 "/api/auth/**",
                                 "/api/contact",
@@ -135,48 +129,35 @@ public class SecurityConfig {
                                 "/api/payments/**"
                         )
                 )
-
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authenticationProvider(daoAuthProvider())
                 .addFilterBefore(cookieJwtFilter, UsernamePasswordAuthenticationFilter.class)
-
                 .authorizeHttpRequests(auth -> auth
-                        // public
                         .requestMatchers("/api/ping", "/api/csrf").permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
-
-                        // public reads
                         .requestMatchers(HttpMethod.GET,
                                 "/api/food-items/**",
                                 "/api/menu-items/**",
                                 "/api/buffet-items/**",
                                 "/api/restaurant-info/**"
                         ).permitAll()
-
-                        // public writes you allow without auth
                         .requestMatchers(HttpMethod.POST, "/api/contact").permitAll()
                         .requestMatchers("/api/contact/**").permitAll()
                         .requestMatchers("/api/payments/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/orders").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/reservations/*/track").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/orders/*/track").permitAll()
-
-                        // auth endpoints
                         .requestMatchers(HttpMethod.POST, "/api/auth/register", "/api/auth/login", "/api/auth/logout").permitAll()
-
-                        // admin
                         .requestMatchers("/actuator/**").hasRole("ADMIN")
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
-
-                        // everything else
                         .anyRequest().authenticated()
                 )
-
                 .exceptionHandling(e -> e.authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)));
 
         return http.build();
     }
+
 
     // If you use RateLimitFilter
     @Bean

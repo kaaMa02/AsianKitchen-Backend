@@ -16,18 +16,14 @@ public class CsrfController {
     private final CookieCsrfTokenRepository repo;
 
     public CsrfController(CookieCsrfTokenRepository repo) {
-        this.repo = repo; // use the same cookie settings as SecurityConfig
+        this.repo = repo; // share configured repo (domain/samesite/secure)
     }
 
     @GetMapping("/api/csrf")
     public ResponseEntity<Map<String, String>> csrf(HttpServletRequest req, HttpServletResponse res) {
-        // If CsrfFilter already created a token, it will be here and the repo will write the cookie.
         CsrfToken token = (CsrfToken) req.getAttribute(CsrfToken.class.getName());
-        if (token == null) {
-            token = repo.generateToken(req);
-        }
-        repo.saveToken(token, req, res);
-
+        if (token == null) token = repo.generateToken(req);
+        repo.saveToken(token, req, res); // writes cookie with correct domain + attrs
         return ResponseEntity.ok(Map.of(
                 "headerName", token.getHeaderName(),
                 "paramName",  token.getParameterName(),
@@ -35,3 +31,4 @@ public class CsrfController {
         ));
     }
 }
+
