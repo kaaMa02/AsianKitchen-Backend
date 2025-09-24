@@ -13,16 +13,19 @@ import java.util.Map;
 @RestController
 public class CsrfController {
 
-    private final CookieCsrfTokenRepository repo = CookieCsrfTokenRepository.withHttpOnlyFalse();
+    private final CookieCsrfTokenRepository repo;
+
+    public CsrfController(CookieCsrfTokenRepository repo) {
+        this.repo = repo; // use the same cookie settings as SecurityConfig
+    }
 
     @GetMapping("/api/csrf")
     public ResponseEntity<Map<String, String>> csrf(HttpServletRequest req, HttpServletResponse res) {
-        // Let CsrfFilter’s token win if it already ran
+        // If CsrfFilter already created a token, it will be here and the repo will write the cookie.
         CsrfToken token = (CsrfToken) req.getAttribute(CsrfToken.class.getName());
         if (token == null) {
             token = repo.generateToken(req);
         }
-        // IMPORTANT: use the real HttpServletResponse so the cookie can be written
         repo.saveToken(token, req, res);
 
         return ResponseEntity.ok(Map.of(

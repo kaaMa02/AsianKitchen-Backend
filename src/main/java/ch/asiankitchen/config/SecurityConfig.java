@@ -52,7 +52,7 @@ public class SecurityConfig {
     @Value("${app.security.auth-cookie-name:AK_AUTH}")
     private String authCookieName;
 
-    @Value("${app.security.cookie-domain:}") // ".asian-kitchen.online" in prod via env
+    @Value("${app.security.cookie-domain:}") // <-- NO LEADING DOT IN VALUE
     private String cookieDomain;
 
     @Value("${app.security.cookie-secure:true}")
@@ -80,23 +80,31 @@ public class SecurityConfig {
         return new BCryptPasswordEncoder();
     }
 
+    /** Shared CookieCsrfTokenRepository so all places use the same cookie settings. */
+    @Bean
+    public CookieCsrfTokenRepository csrfTokenRepository() {
+        var repo = CookieCsrfTokenRepository.withHttpOnlyFalse();
+        repo.setCookieCustomizer(b -> {
+            b.path("/").secure(cookieSecure).sameSite(sameSite);
+            if (StringUtils.hasText(cookieDomain)) {
+                // IMPORTANT: value must NOT start with "."
+                b.domain(cookieDomain);
+            }
+        });
+        return repo;
+    }
+
     // ---- main security chain (highest precedence) ----
     @Bean
     @Order(0)
-    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain securityFilterChain(HttpSecurity http,
+                                                   CookieCsrfTokenRepository csrfRepo) throws Exception {
         System.out.println(">>> SecurityConfig active. cookieDomain=" + cookieDomain);
 
         var cookieJwtFilter = new JwtCookieAuthFilter(jwtTokenProvider, userDetailsService, authCookieName);
 
-        // CSRF token cookie readable by JS
-        var csrfRepo = CookieCsrfTokenRepository.withHttpOnlyFalse();
-        csrfRepo.setCookieCustomizer(b -> {
-            b.path("/").sameSite(sameSite).secure(cookieSecure);
-            if (StringUtils.hasText(cookieDomain)) b.domain(cookieDomain);
-        });
-
         http
-                // CORS inline (no beans)
+                // CORS
                 .cors(c -> {
                     var cors = new CorsConfiguration();
                     cors.setAllowCredentials(true);
@@ -115,14 +123,15 @@ public class SecurityConfig {
                     c.configurationSource(source);
                 })
 
+                // CSRF (use the shared repo)
                 .csrf(csrf -> csrf
                         .csrfTokenRepository(csrfRepo)
-                        // DO NOT ignore /api/csrf — CsrfFilter must run there
+                        // ignore CSRF only where you truly want to allow POSTs without token
                         .ignoringRequestMatchers(
                                 "/api/auth/**",
                                 "/api/contact",
-                                "/api/orders",          // POST
-                                "/api/reservations",    // POST
+                                "/api/orders",
+                                "/api/reservations",
                                 "/api/payments/**"
                         )
                 )
@@ -132,7 +141,7 @@ public class SecurityConfig {
                 .addFilterBefore(cookieJwtFilter, UsernamePasswordAuthenticationFilter.class)
 
                 .authorizeHttpRequests(auth -> auth
-                        // ---- public FIRST (no method restriction to avoid surprises) ----
+                        // public
                         .requestMatchers("/api/ping", "/api/csrf").permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
