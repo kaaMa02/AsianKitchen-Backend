@@ -102,7 +102,6 @@ public class SecurityConfig {
                     cors.setAllowCredentials(true);
                     cors.setAllowedOriginPatterns(Arrays.asList(
                             "https://asian-kitchen.online",
-                            "https://admin.asian-kitchen.online",
                             "https://*.asian-kitchen.online",
                             "https://asiankitchen-frontend.onrender.com",
                             "http://localhost:*",
