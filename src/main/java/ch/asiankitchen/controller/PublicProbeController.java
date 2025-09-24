@@ -1,13 +1,14 @@
 package ch.asiankitchen.controller;
 
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
-import java.util.Map;
 
 @RestController
 public class PublicProbeController {
-    @GetMapping("/api/ping")
-    public Map<String, String> ping() {
-        return Map.of("ok", "true");
+    @GetMapping(value = "/api/ping", produces = MediaType.TEXT_PLAIN_VALUE)
+    public ResponseEntity<String> ping() {
+        return ResponseEntity.ok("ok");
     }
 }
