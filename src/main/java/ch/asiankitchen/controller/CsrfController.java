@@ -1,6 +1,7 @@
 package ch.asiankitchen.controller;
 
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
@@ -12,26 +13,22 @@ import java.util.Map;
 @RestController
 public class CsrfController {
 
-    private final CookieCsrfTokenRepository repo;
-
-    public CsrfController() {
-        // same settings as SecurityConfig (readable cookie)
-        this.repo = CookieCsrfTokenRepository.withHttpOnlyFalse();
-    }
+    private final CookieCsrfTokenRepository repo = CookieCsrfTokenRepository.withHttpOnlyFalse();
 
     @GetMapping("/api/csrf")
-    public ResponseEntity<Map<String, String>> csrf(HttpServletRequest req) {
-        // Try to read the token put by CsrfFilter (if present)
+    public ResponseEntity<Map<String, String>> csrf(HttpServletRequest req, HttpServletResponse res) {
+        // Let CsrfFilter’s token win if it already ran
         CsrfToken token = (CsrfToken) req.getAttribute(CsrfToken.class.getName());
         if (token == null) {
-            // Generate one ourselves and make the repo add the cookie
             token = repo.generateToken(req);
-            repo.saveToken(token, req, null); // response is null here, so just return value below
         }
+        // IMPORTANT: use the real HttpServletResponse so the cookie can be written
+        repo.saveToken(token, req, res);
+
         return ResponseEntity.ok(Map.of(
                 "headerName", token.getHeaderName(),
-                "paramName", token.getParameterName(),
-                "token", token.getToken()
+                "paramName",  token.getParameterName(),
+                "token",      token.getToken()
         ));
     }
 }

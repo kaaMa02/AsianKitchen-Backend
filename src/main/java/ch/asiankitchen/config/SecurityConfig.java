@@ -48,6 +48,7 @@ public class SecurityConfig {
         this.jwtTokenProvider = jwtTokenProvider;
     }
 
+    // ---- cookie / cors settings (come from application-prod.properties / env) ----
     @Value("${app.security.auth-cookie-name:AK_AUTH}")
     private String authCookieName;
 
@@ -60,6 +61,7 @@ public class SecurityConfig {
     @Value("${app.security.same-site:None}")
     private String sameSite;
 
+    // ---- auth manager / encoder ----
     @Bean
     public AuthenticationManager authenticationManager(AuthenticationConfiguration cfg) throws Exception {
         return cfg.getAuthenticationManager();
@@ -78,15 +80,18 @@ public class SecurityConfig {
         return new BCryptPasswordEncoder();
     }
 
+    // ---- main security chain ----
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         var cookieJwtFilter = new JwtCookieAuthFilter(jwtTokenProvider, userDetailsService, authCookieName);
 
-        // CSRF cookie: readable by JS so axios can echo it back in X-XSRF-TOKEN
+        // CSRF token cookie (readable by JS so axios can echo it back)
         var csrfRepo = CookieCsrfTokenRepository.withHttpOnlyFalse();
         csrfRepo.setCookieCustomizer(b -> {
             b.path("/").sameSite(sameSite).secure(cookieSecure);
-            if (StringUtils.hasText(cookieDomain)) b.domain(cookieDomain);
+            if (StringUtils.hasText(cookieDomain)) {
+                b.domain(cookieDomain);
+            }
         });
 
         http
@@ -111,7 +116,7 @@ public class SecurityConfig {
 
                 .csrf(csrf -> csrf
                         .csrfTokenRepository(csrfRepo)
-                        // DO NOT ignore /api/csrf — we want CsrfFilter to create the XSRF-TOKEN here
+                        // DO NOT ignore /api/csrf — we want CsrfFilter involved there
                         .ignoringRequestMatchers(
                                 new AntPathRequestMatcher("/api/auth/**"),
                                 new AntPathRequestMatcher("/api/contact"),
@@ -126,14 +131,13 @@ public class SecurityConfig {
                 .addFilterBefore(cookieJwtFilter, UsernamePasswordAuthenticationFilter.class)
 
                 .authorizeHttpRequests(auth -> auth
+                        // PUBLIC FIRST — unambiguous
                         .requestMatchers(new AntPathRequestMatcher("/api/ping", "GET")).permitAll()
-                        .requestMatchers(new AntPathRequestMatcher("/api/csrf", "GET")).permitAll()
-                        // PUBLIC FIRST — make csrf endpoint unquestionably public
                         .requestMatchers(new AntPathRequestMatcher("/api/csrf", "GET")).permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
 
-                        // PUBLIC READS
+                        // Public reads
                         .requestMatchers(HttpMethod.GET,
                                 "/api/food-items/**",
                                 "/api/menu-items/**",
@@ -141,7 +145,7 @@ public class SecurityConfig {
                                 "/api/restaurant-info/**"
                         ).permitAll()
 
-                        // PUBLIC WRITES (that you allow without CSRF/auth)
+                        // Public writes you explicitly allow
                         .requestMatchers(HttpMethod.POST, "/api/contact").permitAll()
                         .requestMatchers("/api/contact/**").permitAll()
                         .requestMatchers("/api/payments/**").permitAll()
@@ -149,15 +153,15 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/reservations/*/track").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/orders/*/track").permitAll()
 
-                        // AUTH ENDPOINTS
+                        // Auth endpoints
                         .requestMatchers(HttpMethod.POST, "/api/auth/register", "/api/auth/login", "/api/auth/logout").permitAll()
 
-                        // ADMIN
+                        // Admin
                         .requestMatchers("/actuator/**").hasRole("ADMIN")
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
 
-                        // EVERYTHING ELSE
-                        .anyRequest().permitAll()
+                        // Everything else
+                        .anyRequest().authenticated()
                 )
 
                 .exceptionHandling(e -> e.authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)));
@@ -165,6 +169,7 @@ public class SecurityConfig {
         return http.build();
     }
 
+    // If you use a RateLimitFilter
     @Bean
     public FilterRegistrationBean<RateLimitFilter> rateLimitRegistration(RateLimitFilter f) {
         var reg = new FilterRegistrationBean<>(f);
@@ -173,6 +178,9 @@ public class SecurityConfig {
         return reg;
     }
 
+    /**
+     * Reads JWT from HttpOnly cookie and populates SecurityContext if valid.
+     */
     static class JwtCookieAuthFilter extends org.springframework.web.filter.OncePerRequestFilter {
         private final JwtTokenProvider jwt;
         private final CustomUserDetailsService users;
