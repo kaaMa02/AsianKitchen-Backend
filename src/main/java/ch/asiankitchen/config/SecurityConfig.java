@@ -157,7 +157,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
 
                         // EVERYTHING ELSE
-                        .anyRequest().authenticated()
+                        .anyRequest().permitAll()
                 )
 
                 .exceptionHandling(e -> e.authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)));
