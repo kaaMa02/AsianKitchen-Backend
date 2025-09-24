@@ -27,6 +27,7 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+import org.springframework.security.web.csrf.CsrfFilter;
 import org.springframework.util.StringUtils;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -86,7 +87,7 @@ public class SecurityConfig {
         var repo = CookieCsrfTokenRepository.withHttpOnlyFalse();
         repo.setCookieCustomizer(b -> {
             b.path("/").sameSite(sameSite).secure(cookieSecure);
-            if (org.springframework.util.StringUtils.hasText(cookieDomain)) b.domain(cookieDomain);
+            if (StringUtils.hasText(cookieDomain)) b.domain(cookieDomain);
         });
         return repo;
     }
@@ -116,6 +117,8 @@ public class SecurityConfig {
                 })
                 .csrf(csrf -> csrf
                         .csrfTokenRepository(csrfRepository())
+                        // keep CSRF for admin; FE already sends X-XSRF-TOKEN.
+                        // If you prefer to bypass CSRF for admin, add: "/api/admin/**"
                         .ignoringRequestMatchers(
                                 "/api/auth/**",
                                 "/api/contact",
@@ -126,33 +129,47 @@ public class SecurityConfig {
                 )
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authenticationProvider(daoAuthProvider())
-                .addFilterBefore(cookieJwtFilter, UsernamePasswordAuthenticationFilter.class)
+
+                // ************ KEY FIX ************
+                // Authenticate from AK_AUTH cookie BEFORE CSRF runs.
+                .addFilterBefore(cookieJwtFilter, CsrfFilter.class)
+                // (Previously was before UsernamePasswordAuthenticationFilter)
+
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/ping", "/api/csrf").permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
+
+                        // public reads
                         .requestMatchers(HttpMethod.GET,
                                 "/api/food-items/**",
                                 "/api/menu-items/**",
                                 "/api/buffet-items/**",
                                 "/api/restaurant-info/**"
                         ).permitAll()
+
+                        // public writes you allow without auth
                         .requestMatchers(HttpMethod.POST, "/api/contact").permitAll()
                         .requestMatchers("/api/contact/**").permitAll()
                         .requestMatchers("/api/payments/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/orders").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/reservations/*/track").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/orders/*/track").permitAll()
+
+                        // auth endpoints
                         .requestMatchers(HttpMethod.POST, "/api/auth/register", "/api/auth/login", "/api/auth/logout").permitAll()
+
+                        // admin
                         .requestMatchers("/actuator/**").hasRole("ADMIN")
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
+
+                        // everything else
                         .anyRequest().authenticated()
                 )
                 .exceptionHandling(e -> e.authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)));
 
         return http.build();
     }
-
 
     // If you use RateLimitFilter
     @Bean
