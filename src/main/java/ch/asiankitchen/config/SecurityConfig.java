@@ -126,6 +126,8 @@ public class SecurityConfig {
                 .addFilterBefore(cookieJwtFilter, UsernamePasswordAuthenticationFilter.class)
 
                 .authorizeHttpRequests(auth -> auth
+                        .requestMatchers(new AntPathRequestMatcher("/api/ping", "GET")).permitAll()
+                        .requestMatchers(new AntPathRequestMatcher("/api/csrf", "GET")).permitAll()
                         // PUBLIC FIRST — make csrf endpoint unquestionably public
                         .requestMatchers(new AntPathRequestMatcher("/api/csrf", "GET")).permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
