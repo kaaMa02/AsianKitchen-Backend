@@ -52,7 +52,7 @@ public class SecurityConfig {
     @Value("${app.security.auth-cookie-name:AK_AUTH}")
     private String authCookieName;
 
-    @Value("${app.security.cookie-domain:}") // <-- NO LEADING DOT IN VALUE
+    @Value("${app.security.cookie-domain:}")
     private String cookieDomain;
 
     @Value("${app.security.cookie-secure:true}")
@@ -82,23 +82,18 @@ public class SecurityConfig {
 
     /** Shared CookieCsrfTokenRepository so all places use the same cookie settings. */
     @Bean
-    public CookieCsrfTokenRepository csrfTokenRepository(
-            @Value("${app.security.cookie-secure:true}") boolean cookieSecure,
-            @Value("${app.security.same-site:None}") String sameSite,
-            @Value("${app.security.cookie-domain:}") String cookieDomain
-    ) {
-        CookieCsrfTokenRepository repo = CookieCsrfTokenRepository.withHttpOnlyFalse();
+    public CookieCsrfTokenRepository csrfRepository() {
+        var repo = CookieCsrfTokenRepository.withHttpOnlyFalse();
         repo.setCookieCustomizer(b -> {
             b.path("/").sameSite(sameSite).secure(cookieSecure);
-            if (StringUtils.hasText(cookieDomain)) b.domain(cookieDomain);
+            if (org.springframework.util.StringUtils.hasText(cookieDomain)) b.domain(cookieDomain);
         });
         return repo;
     }
 
     @Bean
     @Order(0)
-    public SecurityFilterChain securityFilterChain(HttpSecurity http,
-                                                   CookieCsrfTokenRepository csrfRepo) throws Exception {
+    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         var cookieJwtFilter = new JwtCookieAuthFilter(jwtTokenProvider, userDetailsService, authCookieName);
 
         http
@@ -120,7 +115,7 @@ public class SecurityConfig {
                     c.configurationSource(source);
                 })
                 .csrf(csrf -> csrf
-                        .csrfTokenRepository(csrfRepo)
+                        .csrfTokenRepository(csrfRepository())
                         .ignoringRequestMatchers(
                                 "/api/auth/**",
                                 "/api/contact",

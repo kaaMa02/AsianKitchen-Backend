@@ -16,14 +16,14 @@ public class CsrfController {
     private final CookieCsrfTokenRepository repo;
 
     public CsrfController(CookieCsrfTokenRepository repo) {
-        this.repo = repo; // share configured repo (domain/samesite/secure)
+        this.repo = repo;  // shared, customized bean
     }
 
     @GetMapping("/api/csrf")
     public ResponseEntity<Map<String, String>> csrf(HttpServletRequest req, HttpServletResponse res) {
         CsrfToken token = (CsrfToken) req.getAttribute(CsrfToken.class.getName());
         if (token == null) token = repo.generateToken(req);
-        repo.saveToken(token, req, res); // writes cookie with correct domain + attrs
+        repo.saveToken(token, req, res);
         return ResponseEntity.ok(Map.of(
                 "headerName", token.getHeaderName(),
                 "paramName",  token.getParameterName(),
@@ -31,4 +31,5 @@ public class CsrfController {
         ));
     }
 }
+
 
