@@ -15,7 +15,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
-import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -30,8 +29,10 @@ import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
 import org.springframework.util.StringUtils;
 import org.springframework.web.cors.CorsConfiguration;
-import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+// REMOVE: org.springframework.web.cors.CorsConfigurationSource;
+// REMOVE: org.springframework.web.filter.CorsFilter;
+// REMOVE: org.springframework.core.Ordered;
 
 import java.io.IOException;
 import java.util.Arrays;
@@ -50,23 +51,18 @@ public class SecurityConfig {
         this.jwtTokenProvider = jwtTokenProvider;
     }
 
-    // --- cookie / cors settings from application.properties ---
     @Value("${app.security.auth-cookie-name:AK_AUTH}")
     private String authCookieName;
 
     @Value("${app.security.cookie-domain:}")
-    private String cookieDomain;              // ".asian-kitchen.online" in prod, empty locally
+    private String cookieDomain; // ".asian-kitchen.online" in prod
 
     @Value("${app.security.cookie-secure:true}")
-    private boolean cookieSecure;             // true in prod (HTTPS), false locally
+    private boolean cookieSecure; // true in prod
 
     @Value("${app.security.same-site:None}")
-    private String sameSite;                  // "None" in prod, "Lax" locally if you want
+    private String sameSite; // "None" in prod
 
-    @Value("${app.cors.allowed-origins}")
-    private String allowedOriginsCsv;         // comma-separated list of FE origins
-
-    // --- auth manager / encoder ---
     @Bean
     public AuthenticationManager authenticationManager(AuthenticationConfiguration cfg) throws Exception {
         return cfg.getAuthenticationManager();
@@ -85,24 +81,6 @@ public class SecurityConfig {
         return new BCryptPasswordEncoder();
     }
 
-    // --- CORS ---
-    @Bean
-    CorsConfigurationSource corsConfigurationSource() {
-        List<String> origins = Arrays.stream(allowedOriginsCsv.split(","))
-                .map(String::trim).filter(s -> !s.isBlank()).toList();
-
-        var cors = new CorsConfiguration();
-        cors.setAllowedOrigins(origins); // exact origins
-        cors.setAllowCredentials(true);
-        cors.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
-        cors.setAllowedHeaders(List.of("Content-Type", "Accept", "X-Requested-With", "X-XSRF-TOKEN", "Authorization"));
-        // cors.setExposedHeaders(List.of("Set-Cookie")); // rarely needed
-        var source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/**", cors);
-        return source;
-    }
-
-    // --- Security filter chain ---
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         var cookieJwtFilter = new JwtCookieAuthFilter(jwtTokenProvider, userDetailsService, authCookieName);
@@ -118,7 +96,26 @@ public class SecurityConfig {
         });
 
         http
-                .cors(Customizer.withDefaults())
+                // Inline CORS configuration — no CorsConfigurationSource bean, no conflicts
+                .cors(c -> {
+                    CorsConfiguration cors = new CorsConfiguration();
+                    cors.setAllowCredentials(true);
+                    cors.setAllowedOriginPatterns(Arrays.asList(
+                            "https://asian-kitchen.online",
+                            "https://admin.asian-kitchen.online",
+                            "https://*.asian-kitchen.online",
+                            "https://asiankitchen-frontend.onrender.com",
+                            "http://localhost:*",
+                            "http://127.0.0.1:*"
+                    ));
+                    cors.setAllowedMethods(List.of("GET","POST","PUT","PATCH","DELETE","OPTIONS"));
+                    cors.setAllowedHeaders(List.of("*"));
+                    cors.setExposedHeaders(List.of("Location","Set-Cookie"));
+
+                    UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+                    source.registerCorsConfiguration("/**", cors);
+                    c.configurationSource(source);
+                })
                 .csrf(csrf -> csrf
                         .csrfTokenRepository(csrfRepo)
                         .ignoringRequestMatchers(
@@ -158,7 +155,7 @@ public class SecurityConfig {
         return http.build();
     }
 
-    // If you use the provided RateLimitFilter
+    // Keep your rate limiter registration if you use it (unrelated to CORS)
     @Bean
     public FilterRegistrationBean<RateLimitFilter> rateLimitRegistration(RateLimitFilter f) {
         var reg = new FilterRegistrationBean<>(f);
@@ -167,9 +164,6 @@ public class SecurityConfig {
         return reg;
     }
 
-    /**
-     * Reads JWT from HttpOnly cookie and populates SecurityContext if valid.
-     */
     static class JwtCookieAuthFilter extends org.springframework.web.filter.OncePerRequestFilter {
         private final JwtTokenProvider jwt;
         private final CustomUserDetailsService users;
@@ -186,7 +180,6 @@ public class SecurityConfig {
         @Override
         protected void doFilterInternal(HttpServletRequest req, HttpServletResponse res, FilterChain chain)
                 throws ServletException, IOException {
-
             try {
                 String token = null;
                 Cookie[] cookies = req.getCookies();
@@ -198,19 +191,15 @@ public class SecurityConfig {
                         }
                     }
                 }
-
                 if (token != null && jwt.validateToken(token)
                         && SecurityContextHolder.getContext().getAuthentication() == null) {
-
                     var user = users.loadUserByUsername(jwt.getUsername(token));
-                    var auth = new UsernamePasswordAuthenticationToken(
-                            user, null, user.getAuthorities());
+                    var auth = new UsernamePasswordAuthenticationToken(user, null, user.getAuthorities());
                     SecurityContextHolder.getContext().setAuthentication(auth);
                 }
             } catch (Exception ignore) {
                 // continue unauthenticated
             }
-
             chain.doFilter(req, res);
         }
     }
