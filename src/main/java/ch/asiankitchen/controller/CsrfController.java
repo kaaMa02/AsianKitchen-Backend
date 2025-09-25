@@ -16,7 +16,7 @@ public class CsrfController {
     private final CookieCsrfTokenRepository repo;
 
     public CsrfController(CookieCsrfTokenRepository repo) {
-        this.repo = repo;  // shared, customized bean
+        this.repo = repo;
     }
 
     @GetMapping("/api/csrf")
@@ -31,5 +31,3 @@ public class CsrfController {
         ));
     }
 }
-
-
