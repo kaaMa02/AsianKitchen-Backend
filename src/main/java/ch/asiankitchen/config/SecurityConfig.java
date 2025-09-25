@@ -110,7 +110,7 @@ public class SecurityConfig {
                             "http://127.0.0.1:*"
                     ));
                     cors.setAllowedMethods(List.of("GET","POST","PUT","PATCH","DELETE","OPTIONS"));
-                    cors.setAllowedHeaders(List.of("Content-Type","X-XSRF-TOKEN","X-Requested-With","Authorization"));
+                    cors.setAllowedHeaders(List.of("Content-Type","X-XSRF-TOKEN","X-Requested-With","Authorization","X-REQUEST-CSRF-BOOT"));
                     cors.setExposedHeaders(List.of("Location","Set-Cookie"));
                     var source = new UrlBasedCorsConfigurationSource();
                     source.registerCorsConfiguration("/**", cors);
