@@ -1,6 +1,7 @@
 package ch.asiankitchen.repository;
 
 import ch.asiankitchen.model.CustomerOrder;
+import ch.asiankitchen.model.OrderStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
@@ -22,5 +23,5 @@ public interface CustomerOrderRepository extends JpaRepository<CustomerOrder, UU
         where o.id = :id
     """)
     Optional<CustomerOrder> findWithItemsAndPrices(UUID id);
-
+    long countByStatus(OrderStatus status);
 }
