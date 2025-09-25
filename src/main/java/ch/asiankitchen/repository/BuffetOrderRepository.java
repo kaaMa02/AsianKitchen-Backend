@@ -17,8 +17,6 @@ public interface BuffetOrderRepository extends JpaRepository<BuffetOrder, UUID> 
 
     long countByStatusAndPaymentStatus(OrderStatus status, PaymentStatus paymentStatus);
 
-    // NEW: list only paid NEW, newest first (for Admin page)
-    List<BuffetOrder> findByStatusAndPaymentStatusOrderByCreatedAtDesc(
-            OrderStatus status, PaymentStatus paymentStatus
+    List<BuffetOrder> findByPaymentStatusOrderByCreatedAtDesc(PaymentStatus paymentStatus
     );
 }

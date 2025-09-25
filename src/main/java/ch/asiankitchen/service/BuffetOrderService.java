@@ -3,21 +3,26 @@ package ch.asiankitchen.service;
 import ch.asiankitchen.dto.BuffetOrderReadDTO;
 import ch.asiankitchen.dto.BuffetOrderWriteDTO;
 import ch.asiankitchen.exception.ResourceNotFoundException;
+import ch.asiankitchen.model.BuffetOrder;
 import ch.asiankitchen.model.OrderStatus;
 import ch.asiankitchen.model.PaymentStatus;
 import ch.asiankitchen.repository.BuffetOrderRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.util.UriUtils;
 
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.stream.*;
 
 @Service
 public class BuffetOrderService {
     private final BuffetOrderRepository repo;
+    private final EmailService email;
 
-    public BuffetOrderService(BuffetOrderRepository repo) {
+    public BuffetOrderService(BuffetOrderRepository repo, EmailService email) {
         this.repo = repo;
+        this.email = email;
     }
 
     @Transactional
@@ -48,10 +53,12 @@ public class BuffetOrderService {
     }
 
     @Transactional(readOnly = true)
-    public List<BuffetOrderReadDTO> listPaidNew() {
-        return repo.findByStatusAndPaymentStatusOrderByCreatedAtDesc(
-                OrderStatus.NEW, PaymentStatus.SUCCEEDED
-        ).stream().map(BuffetOrderReadDTO::fromEntity).collect(Collectors.toList());
+    public List<BuffetOrderReadDTO> listAllPaid() {
+        return repo
+                .findByPaymentStatusOrderByCreatedAtDesc(PaymentStatus.SUCCEEDED)
+                .stream()
+                .map(BuffetOrderReadDTO::fromEntity)
+                .collect(Collectors.toList());
     }
 
     @Transactional(readOnly = true)
@@ -69,4 +76,38 @@ public class BuffetOrderService {
         order.setStatus(status);
         return BuffetOrderReadDTO.fromEntity(repo.save(order));
     }
+
+    /** Call this from your Stripe webhook when payment becomes SUCCEEDED */
+    public void sendCustomerConfirmationWithTrackLink(BuffetOrder order) {
+        final String to = order.getCustomerInfo().getEmail();
+        if (to == null || to.isBlank()) return;
+
+        String trackUrl = "https://asian-kitchen.online/track-buffet?orderId=%s&email=%s"
+                .formatted(order.getId(), UriUtils.encode(to, StandardCharsets.UTF_8));
+
+        String subject = "Your buffet order at Asian Kitchen";
+        String body = """
+                Hi %s,
+
+                Thanks for your buffet order! We have received your payment.
+
+                You can track your order here:
+                %s
+
+                Order ID: %s
+                Total: CHF %s
+
+                — Asian Kitchen
+                """.formatted(
+                nullSafe(order.getCustomerInfo().getFirstName()),
+                trackUrl,
+                order.getId(),
+                order.getTotalPrice()
+        );
+
+        email.sendSimple(to, subject, body, null);
+    }
+
+    private static String nullSafe(String s) { return s == null ? "" : s; }
+
 }

@@ -51,4 +51,11 @@ public class CustomerOrderController {
         OrderStatus newStatus = OrderStatus.valueOf(dto.getStatus());
         return service.updateStatus(id, newStatus);
     }
+
+    @GetMapping("/track")
+    public CustomerOrderReadDTO track(
+            @RequestParam UUID orderId,
+            @RequestParam String email) {
+        return service.track(orderId, email);
+    }
 }

@@ -26,7 +26,5 @@ public interface CustomerOrderRepository extends JpaRepository<CustomerOrder, UU
 
     long countByStatusAndPaymentStatus(OrderStatus status, PaymentStatus paymentStatus);
 
-    List<CustomerOrder> findByStatusAndPaymentStatusOrderByCreatedAtDesc(
-            OrderStatus status, PaymentStatus paymentStatus
-    );
+    List<CustomerOrder> findByPaymentStatusOrderByCreatedAtDesc(PaymentStatus paymentStatus);
 }

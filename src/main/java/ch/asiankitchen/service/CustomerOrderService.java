@@ -7,8 +7,10 @@ import ch.asiankitchen.repository.CustomerOrderRepository;
 import ch.asiankitchen.repository.MenuItemRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.util.UriUtils;
 
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.stream.*;
 
@@ -16,10 +18,12 @@ import java.util.stream.*;
 public class CustomerOrderService {
     private final CustomerOrderRepository repo;
     private final MenuItemRepository menuItemRepo;
+    private final EmailService email;
 
-    public CustomerOrderService(CustomerOrderRepository repo, MenuItemRepository menuItemRepo) {
+    public CustomerOrderService(CustomerOrderRepository repo, MenuItemRepository menuItemRepo, EmailService email) {
         this.repo = repo;
         this.menuItemRepo = menuItemRepo;
+        this.email = email;
     }
 
     @Transactional
@@ -84,11 +88,44 @@ public class CustomerOrderService {
     }
 
     @Transactional(readOnly = true)
-    public List<CustomerOrderReadDTO> listPaidNew() {
-        return repo.findByStatusAndPaymentStatusOrderByCreatedAtDesc(
-                OrderStatus.NEW, PaymentStatus.SUCCEEDED
-        ).stream().map(CustomerOrderReadDTO::fromEntity).collect(Collectors.toList());
+    public List<CustomerOrderReadDTO> listAllPaid() {
+        return repo.findByPaymentStatusOrderByCreatedAtDesc(PaymentStatus.SUCCEEDED)
+                .stream().map(CustomerOrderReadDTO::fromEntity).toList();
     }
+
+    /** Call this from your Stripe webhook when the payment becomes SUCCEEDED */
+    public void sendCustomerConfirmationWithTrackLink(CustomerOrder order) {
+        final String to = order.getCustomerInfo().getEmail();
+        if (to == null || to.isBlank()) return;
+
+        // Example public tracking link for menu orders
+        String trackUrl = "https://asian-kitchen.online/track?orderId=%s&email=%s"
+                .formatted(order.getId(), UriUtils.encode(to, StandardCharsets.UTF_8));
+
+        String subject = "Your order at Asian Kitchen";
+        String body = """
+                Hi %s,
+
+                Thanks for your order! We have received your payment.
+
+                You can track your order here:
+                %s
+
+                Order ID: %s
+                Total: CHF %s
+
+                — Asian Kitchen
+                """.formatted(
+                nullSafe(order.getCustomerInfo().getFirstName()),
+                trackUrl,
+                order.getId(),
+                order.getTotalPrice()
+        );
+
+        email.sendSimple(to, subject, body, null);
+    }
+
+    private static String nullSafe(String s) { return s == null ? "" : s; }
 
     private BigDecimal computeTotal(CustomerOrder order) {
         var total = order.getOrderItems().stream()

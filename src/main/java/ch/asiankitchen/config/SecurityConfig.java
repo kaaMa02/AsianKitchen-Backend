@@ -141,6 +141,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/ping", "/api/csrf").permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
+                        .requestMatchers("/api/stripe/webhook").permitAll()
 
                         // public reads
                         .requestMatchers(HttpMethod.GET,

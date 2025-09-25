@@ -21,8 +21,8 @@ public class CustomerOrderAdminController {
     }
 
     @GetMapping
-    public List<CustomerOrderReadDTO> listPaidNew() {
-        return service.listPaidNew();
+    public List<CustomerOrderReadDTO> listAll() {
+        return service.listAllPaid();
     }
 
     @PatchMapping("/{id}/status")

@@ -24,8 +24,8 @@ public class BuffetOrderAdminController {
     }
 
     @GetMapping
-    public List<BuffetOrderReadDTO> listPaidNew() {
-        return service.listPaidNew();
+    public List<BuffetOrderReadDTO> listAll() {
+        return service.listAllPaid();
     }
 
     @PatchMapping("/{id}/status")
