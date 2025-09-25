@@ -16,7 +16,7 @@ public class CsrfController {
     private final CookieCsrfTokenRepository repo;
 
     public CsrfController(CookieCsrfTokenRepository repo) {
-        this.repo = repo;
+        this.repo = repo; // same bean used by SecurityConfig
     }
 
     @GetMapping("/api/csrf")

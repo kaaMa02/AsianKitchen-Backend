@@ -60,7 +60,7 @@ public class SecurityConfig {
     @Value("${app.security.same-site:None}")
     private String sameSite;
 
-    // -------- auth manager / encoder
+    // ---------- Auth manager / encoder ----------
     @Bean
     public AuthenticationManager authenticationManager(AuthenticationConfiguration cfg) throws Exception {
         return cfg.getAuthenticationManager();
@@ -79,7 +79,7 @@ public class SecurityConfig {
         return new BCryptPasswordEncoder();
     }
 
-    /** Shared CsrfTokenRepository (cookie readable by JS for SPA) */
+    /** Shared CsrfTokenRepository (JS-readable cookie). */
     @Bean
     public CookieCsrfTokenRepository csrfRepository() {
         var repo = CookieCsrfTokenRepository.withHttpOnlyFalse();
@@ -90,7 +90,7 @@ public class SecurityConfig {
         return repo;
     }
 
-    // -------- security chain
+    // ---------- Security filter chain ----------
     @Bean
     @Order(0)
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
@@ -110,17 +110,14 @@ public class SecurityConfig {
                             "http://127.0.0.1:*"
                     ));
                     cors.setAllowedMethods(List.of("GET","POST","PUT","PATCH","DELETE","OPTIONS"));
-                    cors.setAllowedHeaders(List.of(
-                            "Content-Type","X-XSRF-TOKEN","X-Requested-With","Authorization",
-                            "X-REQUEST-CSRF-BOOT" // allow our bootstrap marker
-                    ));
+                    cors.setAllowedHeaders(List.of("Content-Type","X-XSRF-TOKEN","X-Requested-With","Authorization","X-REQUEST-CSRF-BOOT"));
                     cors.setExposedHeaders(List.of("Location","Set-Cookie"));
                     var source = new UrlBasedCorsConfigurationSource();
                     source.registerCorsConfiguration("/**", cors);
                     c.configurationSource(source);
                 })
 
-                // CSRF: enabled for all admin + public endpoints except a few POSTs that must be anonymous
+                // CSRF: on for public forms, off for admin API
                 .csrf(csrf -> csrf
                         .csrfTokenRepository(csrfRepository())
                         .ignoringRequestMatchers(
@@ -128,15 +125,15 @@ public class SecurityConfig {
                                 "/api/contact",
                                 "/api/orders",
                                 "/api/reservations",
-                                "/api/payments/**"
-                                // NOTE: /api/admin/** is NOT ignored -> CSRF protected
+                                "/api/payments/**",
+                                "/api/admin/**"   // CSRF disabled for admin endpoints
                         )
                 )
 
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authenticationProvider(daoAuthProvider())
 
-                // load JWT from HttpOnly cookie on each request
+                // JWT from HttpOnly cookie
                 .addFilterBefore(cookieJwtFilter, UsernamePasswordAuthenticationFilter.class)
 
                 .authorizeHttpRequests(auth -> auth
@@ -164,7 +161,7 @@ public class SecurityConfig {
                         // auth endpoints
                         .requestMatchers(HttpMethod.POST, "/api/auth/register", "/api/auth/login", "/api/auth/logout").permitAll()
 
-                        // admin
+                        // admin (JWT required)
                         .requestMatchers("/actuator/**").hasRole("ADMIN")
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
 
@@ -176,7 +173,7 @@ public class SecurityConfig {
         return http.build();
     }
 
-    // optional rate limit filter
+    // Optional rate limiter registration
     @Bean
     public FilterRegistrationBean<RateLimitFilter> rateLimitRegistration(RateLimitFilter f) {
         var reg = new FilterRegistrationBean<>(f);
