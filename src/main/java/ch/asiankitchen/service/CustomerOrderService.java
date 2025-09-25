@@ -83,6 +83,13 @@ public class CustomerOrderService {
                 .collect(Collectors.toList());
     }
 
+    @Transactional(readOnly = true)
+    public List<CustomerOrderReadDTO> listPaidNew() {
+        return repo.findByStatusAndPaymentStatusOrderByCreatedAtDesc(
+                OrderStatus.NEW, PaymentStatus.SUCCEEDED
+        ).stream().map(CustomerOrderReadDTO::fromEntity).collect(Collectors.toList());
+    }
+
     private BigDecimal computeTotal(CustomerOrder order) {
         var total = order.getOrderItems().stream()
                 .map(oi -> oi.getMenuItem().getPrice().multiply(BigDecimal.valueOf(oi.getQuantity())))

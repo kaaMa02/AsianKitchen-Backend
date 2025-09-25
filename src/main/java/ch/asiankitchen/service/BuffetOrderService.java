@@ -4,6 +4,7 @@ import ch.asiankitchen.dto.BuffetOrderReadDTO;
 import ch.asiankitchen.dto.BuffetOrderWriteDTO;
 import ch.asiankitchen.exception.ResourceNotFoundException;
 import ch.asiankitchen.model.OrderStatus;
+import ch.asiankitchen.model.PaymentStatus;
 import ch.asiankitchen.repository.BuffetOrderRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -44,6 +45,13 @@ public class BuffetOrderService {
         return repo.findAll().stream()
                 .map(BuffetOrderReadDTO::fromEntity)
                 .collect(Collectors.toList());
+    }
+
+    @Transactional(readOnly = true)
+    public List<BuffetOrderReadDTO> listPaidNew() {
+        return repo.findByStatusAndPaymentStatusOrderByCreatedAtDesc(
+                OrderStatus.NEW, PaymentStatus.SUCCEEDED
+        ).stream().map(BuffetOrderReadDTO::fromEntity).collect(Collectors.toList());
     }
 
     @Transactional(readOnly = true)
