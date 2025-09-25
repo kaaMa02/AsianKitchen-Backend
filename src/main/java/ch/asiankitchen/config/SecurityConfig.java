@@ -27,7 +27,6 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
-import org.springframework.security.web.csrf.CsrfFilter;
 import org.springframework.util.StringUtils;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -49,7 +48,6 @@ public class SecurityConfig {
         this.jwtTokenProvider = jwtTokenProvider;
     }
 
-    // ---- cookie / cors props ----
     @Value("${app.security.auth-cookie-name:AK_AUTH}")
     private String authCookieName;
 
@@ -62,7 +60,7 @@ public class SecurityConfig {
     @Value("${app.security.same-site:None}")
     private String sameSite;
 
-    // ---- auth manager / encoder ----
+    // ---------- Auth manager / encoder ----------
     @Bean
     public AuthenticationManager authenticationManager(AuthenticationConfiguration cfg) throws Exception {
         return cfg.getAuthenticationManager();
@@ -81,7 +79,7 @@ public class SecurityConfig {
         return new BCryptPasswordEncoder();
     }
 
-    /** Shared CookieCsrfTokenRepository so all places use the same cookie settings. */
+    /** Shared CsrfTokenRepository (cookie readable by JS). */
     @Bean
     public CookieCsrfTokenRepository csrfRepository() {
         var repo = CookieCsrfTokenRepository.withHttpOnlyFalse();
@@ -92,12 +90,15 @@ public class SecurityConfig {
         return repo;
     }
 
+    // ---------- Security filter chain ----------
     @Bean
     @Order(0)
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+
         var cookieJwtFilter = new JwtCookieAuthFilter(jwtTokenProvider, userDetailsService, authCookieName);
 
         http
+                // CORS
                 .cors(c -> {
                     var cors = new CorsConfiguration();
                     cors.setAllowCredentials(true);
@@ -109,33 +110,36 @@ public class SecurityConfig {
                             "http://127.0.0.1:*"
                     ));
                     cors.setAllowedMethods(List.of("GET","POST","PUT","PATCH","DELETE","OPTIONS"));
-                    cors.setAllowedHeaders(List.of("*"));
+                    cors.setAllowedHeaders(List.of("Content-Type","X-XSRF-TOKEN","X-Requested-With","Authorization"));
                     cors.setExposedHeaders(List.of("Location","Set-Cookie"));
                     var source = new UrlBasedCorsConfigurationSource();
                     source.registerCorsConfiguration("/**", cors);
                     c.configurationSource(source);
                 })
+
+                // CSRF:
+                //  - Keep it for PUBLIC forms we receive from the shop (contact, orders, reservations, payments)
+                //  - Disable it for the ADMIN API (we rely on JWT cookie only).
                 .csrf(csrf -> csrf
                         .csrfTokenRepository(csrfRepository())
-                        // keep CSRF for admin; FE already sends X-XSRF-TOKEN.
-                        // If you prefer to bypass CSRF for admin, add: "/api/admin/**"
                         .ignoringRequestMatchers(
                                 "/api/auth/**",
                                 "/api/contact",
                                 "/api/orders",
                                 "/api/reservations",
-                                "/api/payments/**"
+                                "/api/payments/**",
+                                "/api/admin/**"           // <-- IMPORTANT: disable CSRF on admin
                         )
                 )
+
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authenticationProvider(daoAuthProvider())
 
-                // ************ KEY FIX ************
-                // Authenticate from AK_AUTH cookie BEFORE CSRF runs.
-                .addFilterBefore(cookieJwtFilter, CsrfFilter.class)
-                // (Previously was before UsernamePasswordAuthenticationFilter)
+                // make sure JWT from cookie is loaded on every request
+                .addFilterBefore(cookieJwtFilter, UsernamePasswordAuthenticationFilter.class)
 
                 .authorizeHttpRequests(auth -> auth
+                        // public
                         .requestMatchers("/api/ping", "/api/csrf").permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
@@ -148,7 +152,7 @@ public class SecurityConfig {
                                 "/api/restaurant-info/**"
                         ).permitAll()
 
-                        // public writes you allow without auth
+                        // public writes you allow
                         .requestMatchers(HttpMethod.POST, "/api/contact").permitAll()
                         .requestMatchers("/api/contact/**").permitAll()
                         .requestMatchers("/api/payments/**").permitAll()
@@ -159,23 +163,24 @@ public class SecurityConfig {
                         // auth endpoints
                         .requestMatchers(HttpMethod.POST, "/api/auth/register", "/api/auth/login", "/api/auth/logout").permitAll()
 
-                        // admin
+                        // admin (requires auth)
                         .requestMatchers("/actuator/**").hasRole("ADMIN")
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
 
                         // everything else
                         .anyRequest().authenticated()
                 )
+
                 .exceptionHandling(e -> e.authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)));
 
         return http.build();
     }
 
-    // If you use RateLimitFilter
+    // Optional rate limit filter registration (unchanged)
     @Bean
     public FilterRegistrationBean<RateLimitFilter> rateLimitRegistration(RateLimitFilter f) {
         var reg = new FilterRegistrationBean<>(f);
-        reg.setOrder(-110); // before Spring Security (-100)
+        reg.setOrder(-110);
         reg.addUrlPatterns("/api/auth/login", "/api/contact/*", "/api/reservations", "/api/orders");
         return reg;
     }
@@ -186,9 +191,7 @@ public class SecurityConfig {
         private final CustomUserDetailsService users;
         private final String cookieName;
 
-        JwtCookieAuthFilter(JwtTokenProvider jwt,
-                            CustomUserDetailsService users,
-                            String cookieName) {
+        JwtCookieAuthFilter(JwtTokenProvider jwt, CustomUserDetailsService users, String cookieName) {
             this.jwt = jwt;
             this.users = users;
             this.cookieName = cookieName;
