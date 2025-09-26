@@ -2,28 +2,33 @@ package ch.asiankitchen.controller.admin;
 
 import ch.asiankitchen.dto.AdminAlertsDTO;
 import ch.asiankitchen.service.AdminAlertsService;
-import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
-import java.util.Map;
+import java.util.Set;
 
 @RestController
 @RequestMapping("/api/admin/alerts")
 @PreAuthorize("hasRole('ADMIN')")
 public class AdminAlertsController {
+
     private final AdminAlertsService service;
 
-    public AdminAlertsController(AdminAlertsService service) { this.service = service; }
-
-    @GetMapping
-    public AdminAlertsDTO get() {
-        return service.summary();
+    public AdminAlertsController(AdminAlertsService service) {
+        this.service = service;
     }
 
-    // Frontend uses this to clear local badges. Server counts are DB-derived, so this is a no-op.
+    @GetMapping
+    public AdminAlertsDTO summary(Authentication auth) {
+        return service.unseenForUser(auth.getName());
+    }
+
+    public record SeenBody(List<String> kinds) {}
+
     @PostMapping("/seen")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void markSeen(@RequestBody(required = false) Map<String, List<String>> ignored) { }
+    public void markSeen(@RequestBody SeenBody body, Authentication auth) {
+        service.markSeen(auth.getName(), Set.copyOf(body.kinds() == null ? List.of() : body.kinds()));
+    }
 }
