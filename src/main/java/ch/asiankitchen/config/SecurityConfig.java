@@ -158,6 +158,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/contact/**").permitAll()
                         .requestMatchers("/api/payments/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/orders").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/reservations").permitAll()
 
                         // auth endpoints
                         .requestMatchers(HttpMethod.POST, "/api/auth/register", "/api/auth/login", "/api/auth/logout").permitAll()
