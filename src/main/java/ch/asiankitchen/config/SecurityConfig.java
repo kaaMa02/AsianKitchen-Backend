@@ -148,7 +148,9 @@ public class SecurityConfig {
                                 "/api/food-items/**",
                                 "/api/menu-items/**",
                                 "/api/buffet-items/**",
-                                "/api/restaurant-info/**"
+                                "/api/restaurant-info/**",
+                                "/api/orders/*/track",
+                                "/api/buffet-orders/*/track"
                         ).permitAll()
 
                         // public writes
@@ -156,8 +158,6 @@ public class SecurityConfig {
                         .requestMatchers("/api/contact/**").permitAll()
                         .requestMatchers("/api/payments/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/orders").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/reservations/*/track").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/orders/*/track").permitAll()
 
                         // auth endpoints
                         .requestMatchers(HttpMethod.POST, "/api/auth/register", "/api/auth/login", "/api/auth/logout").permitAll()
