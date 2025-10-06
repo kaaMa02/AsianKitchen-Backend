@@ -22,7 +22,7 @@ public class CustomerOrderAdminController {
 
     @GetMapping
     public List<CustomerOrderReadDTO> listAll() {
-        return service.listAllPaid();
+        return service.listAllVisibleForAdmin();
     }
 
     @PatchMapping("/{id}/status")

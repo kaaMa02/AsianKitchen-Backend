@@ -5,6 +5,7 @@ import ch.asiankitchen.dto.BuffetOrderWriteDTO;
 import ch.asiankitchen.exception.ResourceNotFoundException;
 import ch.asiankitchen.model.BuffetOrder;
 import ch.asiankitchen.model.OrderStatus;
+import ch.asiankitchen.model.PaymentMethod;
 import ch.asiankitchen.model.PaymentStatus;
 import ch.asiankitchen.repository.BuffetOrderRepository;
 import org.springframework.stereotype.Service;
@@ -27,7 +28,12 @@ public class BuffetOrderService {
 
     @Transactional
     public BuffetOrderReadDTO create(BuffetOrderWriteDTO dto) {
-        var saved = repo.save(dto.toEntity());
+        var order = dto.toEntity();
+        order.setStatus(OrderStatus.NEW);
+        if (order.getPaymentMethod() == PaymentMethod.CASH) {
+            order.setPaymentStatus(PaymentStatus.NOT_REQUIRED);
+        }
+        var saved = repo.save(order);
         return BuffetOrderReadDTO.fromEntity(saved);
     }
 
@@ -53,12 +59,9 @@ public class BuffetOrderService {
     }
 
     @Transactional(readOnly = true)
-    public List<BuffetOrderReadDTO> listAllPaid() {
-        return repo
-                .findByPaymentStatusOrderByCreatedAtDesc(PaymentStatus.SUCCEEDED)
-                .stream()
-                .map(BuffetOrderReadDTO::fromEntity)
-                .collect(Collectors.toList());
+    public List<BuffetOrderReadDTO> listAllVisibleForAdmin() {
+        return repo.findAdminVisibleWithItems(PaymentStatus.SUCCEEDED, PaymentMethod.CASH)
+                .stream().map(BuffetOrderReadDTO::fromEntity).toList();
     }
 
     @Transactional(readOnly = true)

@@ -24,6 +24,9 @@ public class CustomerOrderWriteDTO {
 
     private String specialInstructions;
 
+    @NotNull
+    private PaymentMethod paymentMethod;
+
     @NotEmpty
     @Valid
     private List<OrderItemWriteDTO> items;
@@ -41,6 +44,7 @@ public class CustomerOrderWriteDTO {
             item.setCustomerOrder(order);
             return item;
         }).toList());
+        order.setPaymentMethod(paymentMethod);
         return order;
     }
 }

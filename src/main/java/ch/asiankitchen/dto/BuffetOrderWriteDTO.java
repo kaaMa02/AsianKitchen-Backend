@@ -2,6 +2,7 @@ package ch.asiankitchen.dto;
 
 import ch.asiankitchen.model.BuffetOrder;
 import ch.asiankitchen.model.OrderType;
+import ch.asiankitchen.model.PaymentMethod;
 import ch.asiankitchen.model.User;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotEmpty;
@@ -28,7 +29,10 @@ public class BuffetOrderWriteDTO {
 
     @NotEmpty
     @Valid
-    private List<BuffetOrderItemDTO> items;
+    private List<BuffetOrderItemWriteDTO> items;
+
+    @NotNull
+    private PaymentMethod paymentMethod;
 
     public BuffetOrder toEntity() {
         var order = new BuffetOrder();
@@ -43,6 +47,7 @@ public class BuffetOrderWriteDTO {
             item.setBuffetOrder(order);
             return item;
         }).toList());
+        order.setPaymentMethod(paymentMethod);
         return order;
     }
 }

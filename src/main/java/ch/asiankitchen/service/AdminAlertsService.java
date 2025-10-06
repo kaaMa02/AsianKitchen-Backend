@@ -2,6 +2,7 @@ package ch.asiankitchen.service;
 
 import ch.asiankitchen.dto.AdminAlertsDTO;
 import ch.asiankitchen.model.OrderStatus;
+import ch.asiankitchen.model.PaymentMethod;
 import ch.asiankitchen.model.PaymentStatus;
 import ch.asiankitchen.model.ReservationStatus;
 import ch.asiankitchen.repository.BuffetOrderRepository;
@@ -31,8 +32,13 @@ public class AdminAlertsService {
     /** Snapshot of raw counts (not deltas) */
     private AdminAlertsDTO snapshot() {
         long r = reservations.countByStatus(ReservationStatus.REQUESTED);
-        long o = orders.countByStatusAndPaymentStatus(OrderStatus.NEW, PaymentStatus.SUCCEEDED);
-        long b = buffet.countByStatusAndPaymentStatus(OrderStatus.NEW, PaymentStatus.SUCCEEDED);
+
+        long o = orders.countByStatusAndPaymentStatus(OrderStatus.NEW, PaymentStatus.SUCCEEDED)
+                + orders.countByStatusAndPaymentMethod(OrderStatus.NEW, PaymentMethod.CASH);
+
+        long b = buffet.countByStatusAndPaymentStatus(OrderStatus.NEW, PaymentStatus.SUCCEEDED)
+                + buffet.countByStatusAndPaymentMethod(OrderStatus.NEW, PaymentMethod.CASH);
+
         return new AdminAlertsDTO(r, o, b);
     }
 

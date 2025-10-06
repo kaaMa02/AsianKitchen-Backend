@@ -21,6 +21,7 @@ public class CustomerOrderReadDTO {
     private String specialInstructions;
     private PaymentStatus paymentStatus;
     private String paymentIntentId;
+    private PaymentMethod paymentMethod;
 
     public static CustomerOrderReadDTO fromEntity(CustomerOrder o) {
         return CustomerOrderReadDTO.builder()
@@ -36,6 +37,7 @@ public class CustomerOrderReadDTO {
                 .specialInstructions(o.getSpecialInstructions())
                 .paymentStatus(o.getPaymentStatus())
                 .paymentIntentId(o.getPaymentIntentId())
+                .paymentMethod(o.getPaymentMethod())
                 .build();
     }
 }

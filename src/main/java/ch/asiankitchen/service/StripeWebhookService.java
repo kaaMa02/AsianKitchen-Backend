@@ -1,7 +1,5 @@
 package ch.asiankitchen.service;
 
-import ch.asiankitchen.model.BuffetOrder;
-import ch.asiankitchen.model.CustomerOrder;
 import ch.asiankitchen.model.PaymentStatus;
 import ch.asiankitchen.repository.BuffetOrderRepository;
 import ch.asiankitchen.repository.CustomerOrderRepository;

@@ -59,6 +59,10 @@ public class CustomerOrder {
     @Column(name = "payment_status", length = 30)
     private PaymentStatus paymentStatus;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name="payment_method", length=30)
+    private PaymentMethod paymentMethod;
+
     @PrePersist
     protected void onCreate() {
         this.createdAt = LocalDateTime.now();

@@ -46,6 +46,10 @@ public class CustomerOrderService {
         // Compute total from DB prices (server-truth)
         order.setTotalPrice(computeTotal(order));
 
+        if (order.getPaymentMethod() == PaymentMethod.CASH) {
+            order.setPaymentStatus(PaymentStatus.NOT_REQUIRED);
+        }
+
         var saved = repo.save(order);
         return CustomerOrderReadDTO.fromEntity(saved);
     }
@@ -88,8 +92,8 @@ public class CustomerOrderService {
     }
 
     @Transactional(readOnly = true)
-    public List<CustomerOrderReadDTO> listAllPaid() {
-        return repo.findByPaymentStatusOrderByCreatedAtDesc(PaymentStatus.SUCCEEDED)
+    public List<CustomerOrderReadDTO> listAllVisibleForAdmin() {
+        return repo.findAdminVisibleWithItems(PaymentStatus.SUCCEEDED, PaymentMethod.CASH)
                 .stream().map(CustomerOrderReadDTO::fromEntity).toList();
     }
 
