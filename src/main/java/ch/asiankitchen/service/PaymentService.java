@@ -30,34 +30,34 @@ public class PaymentService {
     private final CustomerOrderRepository customerOrderRepo;
     private final BuffetOrderRepository buffetOrderRepo;
 
+    // If you do not have DiscountService wired yet, swap this to a simple no-op bean.
+    private final DiscountService discountService;
+
     @Value("${stripe.secret-key}")
     private String secretKey;
 
     @Value("${stripe.currency:chf}")
     private String currency;
 
-    /** VAT rate in percent (e.g. 2.6 for 2.60%). Applies to TAKEAWAY & DELIVERY. */
     @Value("${vat.ratePercent:2.6}")
     private BigDecimal vatRatePercent;
 
-    /** Delivery zone config injected from application properties / env. */
     @Value("${app.delivery.allowed-plz:}")
     private String allowedPlzCsv;
 
     @Value("${app.delivery.reject-message:We don’t deliver to this address.}")
     private String rejectMessage;
 
-    /** Parsed set of allowed PLZ codes. */
-    private Set<String> allowedPlz;
-
     @Value("${app.delivery.min-order-chf:30.00}")
-    private BigDecimal minDeliveryOrder;
+    private BigDecimal minOrderChf;
 
     @Value("${app.delivery.fee-chf:5.00}")
-    private BigDecimal deliveryFee;
+    private BigDecimal deliveryFeeChf;
 
     @Value("${app.delivery.free-threshold-chf:100.00}")
-    private BigDecimal freeDeliveryThreshold;
+    private BigDecimal freeDeliveryThresholdChf;
+
+    private Set<String> allowedPlz;
 
     @PostConstruct
     void init() {
@@ -68,31 +68,41 @@ public class PaymentService {
                 .collect(Collectors.toSet());
     }
 
-    // ───────────────────────────────────────────────────────────────────────────
+    // ───────────────────────────────────────────────────────────
     // CUSTOMER ORDER
-    // ───────────────────────────────────────────────────────────────────────────
+    // ───────────────────────────────────────────────────────────
     @Transactional
     public PaymentIntent createIntentForCustomerOrder(UUID id) throws StripeException {
         CustomerOrder order = customerOrderRepo.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("CustomerOrder", id));
 
-        // Cash orders never need Stripe intents
-        if (order.getPaymentMethod() == PaymentMethod.CASH) {
-            throw new IllegalArgumentException("Cash orders do not require a payment intent.");
+        if (order.getPaymentMethod() == PaymentMethod.CASH
+                || order.getPaymentMethod() == PaymentMethod.POS_CARD
+                || order.getPaymentMethod() == PaymentMethod.TWINT) {
+            throw new IllegalArgumentException("This payment method does not require a payment intent.");
         }
 
         enforceDeliveryZone(order.getOrderType(), order.getCustomerInfo());
 
-        // Items subtotal from DB prices (server-authoritative)
         BigDecimal items = order.getOrderItems().stream()
                 .map(oi -> {
                     BigDecimal price = Optional.ofNullable(oi.getMenuItem().getPrice()).orElse(BigDecimal.ZERO);
                     return price.multiply(BigDecimal.valueOf(oi.getQuantity()));
                 })
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-        enforceDeliveryMinimum(order.getOrderType(), items);
+                .reduce(BigDecimal.ZERO, BigDecimal::add)
+                .setScale(2, RoundingMode.HALF_UP);
 
-        BigDecimal grand = computeGrandTotal(order.getOrderType(), items);
+        if (order.getOrderType() == OrderType.DELIVERY) {
+            enforceMinOrder(items);
+        }
+
+        DiscountResult dr = applyDiscountMenu(items);
+
+        BigDecimal vat = calcVat(order.getOrderType(), dr.discountedItems());
+        BigDecimal delivery = calcDeliveryFee(order.getOrderType(), dr.discountedItems());
+        BigDecimal grand = dr.discountedItems().add(vat).add(delivery).setScale(2, RoundingMode.HALF_UP);
+
+        // If you later add fields for discount snapshot on the entity, set them here.
         order.setTotalPrice(grand);
         customerOrderRepo.save(order);
 
@@ -107,25 +117,35 @@ public class PaymentService {
         return intent;
     }
 
-    // ───────────────────────────────────────────────────────────────────────────
+    // ───────────────────────────────────────────────────────────
     // BUFFET ORDER
-    // ───────────────────────────────────────────────────────────────────────────
+    // ───────────────────────────────────────────────────────────
     @Transactional
     public PaymentIntent createIntentForBuffetOrder(UUID id) throws StripeException {
         BuffetOrder order = buffetOrderRepo.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("BuffetOrder", id));
 
-        // Cash orders never need Stripe intents
-        if (order.getPaymentMethod() == PaymentMethod.CASH) {
-            throw new IllegalArgumentException("Cash orders do not require a payment intent.");
+        if (order.getPaymentMethod() == PaymentMethod.CASH
+                || order.getPaymentMethod() == PaymentMethod.POS_CARD
+                || order.getPaymentMethod() == PaymentMethod.TWINT) {
+            throw new IllegalArgumentException("This payment method does not require a payment intent.");
         }
 
         enforceDeliveryZone(order.getOrderType(), order.getCustomerInfo());
 
-        // Buffet order keeps item prices in totalPrice; treat that as items subtotal
-        BigDecimal items = Optional.ofNullable(order.getTotalPrice()).orElse(BigDecimal.ZERO);
-        enforceDeliveryMinimum(order.getOrderType(), items);
-        BigDecimal grand = computeGrandTotal(order.getOrderType(), items);
+        BigDecimal items = Optional.ofNullable(order.getTotalPrice()).orElse(BigDecimal.ZERO)
+                .setScale(2, RoundingMode.HALF_UP);
+
+        if (order.getOrderType() == OrderType.DELIVERY) {
+            enforceMinOrder(items);
+        }
+
+        DiscountResult dr = applyDiscountBuffet(items);
+
+        BigDecimal vat = calcVat(order.getOrderType(), dr.discountedItems());
+        BigDecimal delivery = calcDeliveryFee(order.getOrderType(), dr.discountedItems());
+        BigDecimal grand = dr.discountedItems().add(vat).add(delivery).setScale(2, RoundingMode.HALF_UP);
+
         order.setTotalPrice(grand);
         buffetOrderRepo.save(order);
 
@@ -140,9 +160,9 @@ public class PaymentService {
         return intent;
     }
 
-    // ───────────────────────────────────────────────────────────────────────────
-    // WEBHOOK HANDLER (status -> orders)
-    // ───────────────────────────────────────────────────────────────────────────
+    // ───────────────────────────────────────────────────────────
+    // WEBHOOK HANDLER
+    // ───────────────────────────────────────────────────────────
     @Transactional
     public void handleWebhook(String payload, String signatureHeader, String webhookSecret)
             throws SignatureVerificationException {
@@ -176,18 +196,10 @@ public class PaymentService {
                             resolveMethod(ch));
                 }
             }
-            default -> { /* ignore others */ }
+            default -> { }
         }
     }
 
-    private void enforceDeliveryMinimum(OrderType orderType, BigDecimal itemsSubtotal) {
-        if (orderType != OrderType.DELIVERY) return;
-        if (itemsSubtotal.compareTo(minDeliveryOrder) < 0) {
-            throw new IllegalArgumentException("Minimum delivery order is CHF " + minDeliveryOrder.setScale(2));
-        }
-    }
-
-    /** Map Stripe charge payment method to our enum. Extend when enabling more methods. */
     private PaymentMethod resolveMethod(Charge ch) {
         try {
             String type = ch.getPaymentMethodDetails() != null
@@ -222,67 +234,64 @@ public class PaymentService {
         });
     }
 
-    // ───────────────────────────────────────────────────────────────────────────
-    // SMALL HELPERS (eliminate duplication)
-    // ───────────────────────────────────────────────────────────────────────────
-
-    /** items subtotal -> grand total (adds VAT + delivery if applicable). */
-    private BigDecimal computeGrandTotal(OrderType orderType, BigDecimal itemsSubtotal) {
-        BigDecimal vat = calcVat(orderType, itemsSubtotal);
-        BigDecimal delivery = calcDeliveryFee(orderType, itemsSubtotal);
-        return itemsSubtotal.add(vat).add(delivery);
+    // ───────────────────────────────────────────────────────────
+    // DISCOUNT HELPERS
+    // ───────────────────────────────────────────────────────────
+    private DiscountResult applyDiscountMenu(BigDecimal itemsSubtotal) {
+        var active = discountService.resolveActive(); // returns percents as BigDecimal; default 0
+        BigDecimal pct = active.percentMenu() == null ? BigDecimal.ZERO : active.percentMenu();
+        BigDecimal rate = pct.divide(new BigDecimal("100"), 6, RoundingMode.HALF_UP);
+        BigDecimal discount = itemsSubtotal.multiply(rate).setScale(2, RoundingMode.HALF_UP);
+        BigDecimal discounted = itemsSubtotal.subtract(discount).max(BigDecimal.ZERO);
+        return new DiscountResult(discounted, discount, pct);
     }
 
-    /** Build the Stripe PaymentIntent (shared between order types). */
-    private PaymentIntent createStripeIntent(long amountMinor,
-                                             String orderTypeMeta,
-                                             UUID orderId,
-                                             PaymentMethod intended) throws StripeException {
-
-        PaymentIntentCreateParams.Builder builder = PaymentIntentCreateParams.builder()
-                .setAmount(amountMinor)
-                .setCurrency(currency)
-                .setAutomaticPaymentMethods(
-                        PaymentIntentCreateParams.AutomaticPaymentMethods.builder()
-                                .setEnabled(true)
-                                .setAllowRedirects(PaymentIntentCreateParams.AutomaticPaymentMethods.AllowRedirects.NEVER)
-                                .build()
-                )
-                // If you want to hard-restrict to card/TWINT only, uncomment:
-                // .addAllPaymentMethodType(Arrays.asList("card", "twint"))
-                .putMetadata("type", orderTypeMeta)
-                .putMetadata("orderId", orderId.toString())
-                .putMetadata("intendedMethod", String.valueOf(intended));
-
-        return PaymentIntent.create(builder.build());
+    private DiscountResult applyDiscountBuffet(BigDecimal itemsSubtotal) {
+        var active = discountService.resolveActive();
+        BigDecimal pct = active.percentBuffet() == null ? BigDecimal.ZERO : active.percentBuffet();
+        BigDecimal rate = pct.divide(new BigDecimal("100"), 6, RoundingMode.HALF_UP);
+        BigDecimal discount = itemsSubtotal.multiply(rate).setScale(2, RoundingMode.HALF_UP);
+        BigDecimal discounted = itemsSubtotal.subtract(discount).max(BigDecimal.ZERO);
+        return new DiscountResult(discounted, discount, pct);
     }
 
+    private record DiscountResult(BigDecimal discountedItems, BigDecimal discountAmount, BigDecimal discountPercent) {}
+
+    // ───────────────────────────────────────────────────────────
+    // TOTAL HELPERS
+    // ───────────────────────────────────────────────────────────
     private void enforceDeliveryZone(OrderType orderType, CustomerInfo info) {
         if (orderType != OrderType.DELIVERY) return;
-
         String plz = Optional.ofNullable(info)
                 .map(CustomerInfo::getAddress)
                 .map(Address::getPlz)
                 .map(String::trim)
                 .orElse("");
-
         if (!allowedPlz.contains(plz)) {
             throw new IllegalArgumentException(rejectMessage);
         }
     }
 
-    private BigDecimal calcVat(OrderType orderType, BigDecimal itemsSubtotal) {
-        boolean taxable = (orderType == OrderType.TAKEAWAY || orderType == OrderType.DELIVERY);
-        if (!taxable) return BigDecimal.ZERO;
-
-        BigDecimal rate = vatRatePercent
-                .divide(BigDecimal.valueOf(100), 6, RoundingMode.HALF_UP);
-        return itemsSubtotal.multiply(rate).setScale(2, RoundingMode.HALF_UP);
+    private void enforceMinOrder(BigDecimal itemsPreDiscount) {
+        if (itemsPreDiscount.compareTo(minOrderChf) < 0) {
+            throw new IllegalArgumentException(
+                    "Minimum delivery order is CHF " + minOrderChf.setScale(2, RoundingMode.HALF_UP));
+        }
     }
 
-    private BigDecimal calcDeliveryFee(OrderType orderType, BigDecimal itemsSubtotal) {
+    private BigDecimal calcVat(OrderType orderType, BigDecimal itemsSubtotalUsed) {
+        boolean taxable = (orderType == OrderType.TAKEAWAY || orderType == OrderType.DELIVERY);
+        if (!taxable) return BigDecimal.ZERO;
+        BigDecimal rate = vatRatePercent.divide(BigDecimal.valueOf(100), 6, RoundingMode.HALF_UP);
+        return itemsSubtotalUsed.multiply(rate).setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private BigDecimal calcDeliveryFee(OrderType orderType, BigDecimal itemsSubtotalUsed) {
         if (orderType != OrderType.DELIVERY) return BigDecimal.ZERO;
-        return (itemsSubtotal.compareTo(freeDeliveryThreshold) >= 0) ? BigDecimal.ZERO : deliveryFee;
+        if (itemsSubtotalUsed.compareTo(freeDeliveryThresholdChf) >= 0) {
+            return BigDecimal.ZERO;
+        }
+        return deliveryFeeChf.setScale(2, RoundingMode.HALF_UP);
     }
 
     private long toMinor(BigDecimal amountChf) {
@@ -293,5 +302,24 @@ public class PaymentService {
         if ("chf".equalsIgnoreCase(currency) && amountMinor < 50L) {
             throw new IllegalArgumentException("Order total is below Stripe minimum charge for CHF (0.50).");
         }
+    }
+
+    private PaymentIntent createStripeIntent(long amountMinor,
+                                             String orderTypeMeta,
+                                             UUID orderId,
+                                             PaymentMethod intended) throws StripeException {
+        PaymentIntentCreateParams.Builder builder = PaymentIntentCreateParams.builder()
+                .setAmount(amountMinor)
+                .setCurrency(currency)
+                .setAutomaticPaymentMethods(
+                        PaymentIntentCreateParams.AutomaticPaymentMethods.builder()
+                                .setEnabled(true)
+                                .setAllowRedirects(PaymentIntentCreateParams.AutomaticPaymentMethods.AllowRedirects.NEVER)
+                                .build()
+                )
+                .putMetadata("type", orderTypeMeta)
+                .putMetadata("orderId", orderId.toString())
+                .putMetadata("intendedMethod", String.valueOf(intended));
+        return PaymentIntent.create(builder.build());
     }
 }
