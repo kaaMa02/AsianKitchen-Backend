@@ -50,6 +50,15 @@ public class PaymentService {
     /** Parsed set of allowed PLZ codes. */
     private Set<String> allowedPlz;
 
+    @Value("${app.delivery.min-order-chf:30.00}")
+    private BigDecimal minDeliveryOrder;
+
+    @Value("${app.delivery.fee-chf:5.00}")
+    private BigDecimal deliveryFee;
+
+    @Value("${app.delivery.free-threshold-chf:100.00}")
+    private BigDecimal freeDeliveryThreshold;
+
     @PostConstruct
     void init() {
         Stripe.apiKey = secretKey;
@@ -81,6 +90,7 @@ public class PaymentService {
                     return price.multiply(BigDecimal.valueOf(oi.getQuantity()));
                 })
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
+        enforceDeliveryMinimum(order.getOrderType(), items);
 
         BigDecimal grand = computeGrandTotal(order.getOrderType(), items);
         order.setTotalPrice(grand);
@@ -114,7 +124,7 @@ public class PaymentService {
 
         // Buffet order keeps item prices in totalPrice; treat that as items subtotal
         BigDecimal items = Optional.ofNullable(order.getTotalPrice()).orElse(BigDecimal.ZERO);
-
+        enforceDeliveryMinimum(order.getOrderType(), items);
         BigDecimal grand = computeGrandTotal(order.getOrderType(), items);
         order.setTotalPrice(grand);
         buffetOrderRepo.save(order);
@@ -167,6 +177,13 @@ public class PaymentService {
                 }
             }
             default -> { /* ignore others */ }
+        }
+    }
+
+    private void enforceDeliveryMinimum(OrderType orderType, BigDecimal itemsSubtotal) {
+        if (orderType != OrderType.DELIVERY) return;
+        if (itemsSubtotal.compareTo(minDeliveryOrder) < 0) {
+            throw new IllegalArgumentException("Minimum delivery order is CHF " + minDeliveryOrder.setScale(2));
         }
     }
 
@@ -265,14 +282,7 @@ public class PaymentService {
 
     private BigDecimal calcDeliveryFee(OrderType orderType, BigDecimal itemsSubtotal) {
         if (orderType != OrderType.DELIVERY) return BigDecimal.ZERO;
-
-        if (itemsSubtotal.compareTo(new BigDecimal("25.00")) > 0
-                && itemsSubtotal.compareTo(new BigDecimal("50.00")) < 0) {
-            return new BigDecimal("3.00");
-        } else if (itemsSubtotal.compareTo(new BigDecimal("50.00")) > 0) {
-            return new BigDecimal("5.00");
-        }
-        return BigDecimal.ZERO;
+        return (itemsSubtotal.compareTo(freeDeliveryThreshold) >= 0) ? BigDecimal.ZERO : deliveryFee;
     }
 
     private long toMinor(BigDecimal amountChf) {
