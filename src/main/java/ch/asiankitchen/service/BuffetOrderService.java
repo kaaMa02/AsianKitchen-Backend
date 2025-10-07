@@ -30,7 +30,7 @@ public class BuffetOrderService {
     public BuffetOrderReadDTO create(BuffetOrderWriteDTO dto) {
         var order = dto.toEntity();
         order.setStatus(OrderStatus.NEW);
-        if (order.getPaymentMethod() == PaymentMethod.CASH) {
+        if (order.getPaymentMethod() != PaymentMethod.CARD) {
             order.setPaymentStatus(PaymentStatus.NOT_REQUIRED);
         }
         var saved = repo.save(order);
@@ -60,7 +60,8 @@ public class BuffetOrderService {
 
     @Transactional(readOnly = true)
     public List<BuffetOrderReadDTO> listAllVisibleForAdmin() {
-        return repo.findAdminVisibleWithItems(PaymentStatus.SUCCEEDED, PaymentMethod.CASH)
+        var statuses = List.of(PaymentStatus.SUCCEEDED, PaymentStatus.NOT_REQUIRED);
+        return repo.findAdminVisibleWithItems(statuses)
                 .stream().map(BuffetOrderReadDTO::fromEntity).toList();
     }
 

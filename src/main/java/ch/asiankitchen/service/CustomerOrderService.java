@@ -46,7 +46,7 @@ public class CustomerOrderService {
         // Compute total from DB prices (server-truth)
         order.setTotalPrice(computeTotal(order));
 
-        if (order.getPaymentMethod() == PaymentMethod.CASH) {
+        if (order.getPaymentMethod() != PaymentMethod.CARD) {
             order.setPaymentStatus(PaymentStatus.NOT_REQUIRED);
         }
 
@@ -93,7 +93,8 @@ public class CustomerOrderService {
 
     @Transactional(readOnly = true)
     public List<CustomerOrderReadDTO> listAllVisibleForAdmin() {
-        return repo.findAdminVisibleWithItems(PaymentStatus.SUCCEEDED, PaymentMethod.CASH)
+        var statuses = List.of(PaymentStatus.SUCCEEDED, PaymentStatus.NOT_REQUIRED);
+        return repo.findAdminVisibleWithItems(statuses)
                 .stream().map(CustomerOrderReadDTO::fromEntity).toList();
     }
 

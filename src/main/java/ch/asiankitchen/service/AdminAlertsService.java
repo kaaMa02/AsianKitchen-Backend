@@ -2,7 +2,6 @@ package ch.asiankitchen.service;
 
 import ch.asiankitchen.dto.AdminAlertsDTO;
 import ch.asiankitchen.model.OrderStatus;
-import ch.asiankitchen.model.PaymentMethod;
 import ch.asiankitchen.model.PaymentStatus;
 import ch.asiankitchen.model.ReservationStatus;
 import ch.asiankitchen.repository.BuffetOrderRepository;
@@ -10,6 +9,7 @@ import ch.asiankitchen.repository.CustomerOrderRepository;
 import ch.asiankitchen.repository.ReservationRepository;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -33,11 +33,10 @@ public class AdminAlertsService {
     private AdminAlertsDTO snapshot() {
         long r = reservations.countByStatus(ReservationStatus.REQUESTED);
 
-        long o = orders.countByStatusAndPaymentStatus(OrderStatus.NEW, PaymentStatus.SUCCEEDED)
-                + orders.countByStatusAndPaymentMethod(OrderStatus.NEW, PaymentMethod.CASH);
+        long o = orders.countByStatusAndPaymentStatusIn(OrderStatus.NEW, List.of(PaymentStatus.SUCCEEDED, PaymentStatus.NOT_REQUIRED));
 
-        long b = buffet.countByStatusAndPaymentStatus(OrderStatus.NEW, PaymentStatus.SUCCEEDED)
-                + buffet.countByStatusAndPaymentMethod(OrderStatus.NEW, PaymentMethod.CASH);
+
+        long b = buffet.countByStatusAndPaymentStatusIn(OrderStatus.NEW, List.of(PaymentStatus.SUCCEEDED, PaymentStatus.NOT_REQUIRED));
 
         return new AdminAlertsDTO(r, o, b);
     }
