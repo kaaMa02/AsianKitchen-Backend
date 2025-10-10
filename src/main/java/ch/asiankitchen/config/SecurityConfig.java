@@ -143,6 +143,7 @@ public class SecurityConfig {
                         .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
                         .requestMatchers("/api/stripe/webhook").permitAll()
 
+                        .requestMatchers("api/public/discounts/**").permitAll()
                         // public reads
                         .requestMatchers(HttpMethod.GET,
                                 "/api/food-items/**",
