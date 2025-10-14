@@ -36,6 +36,7 @@ public class PaymentService {
     private final DiscountService discountService;
     private final CustomerOrderService customerOrderService;
     private final BuffetOrderService buffetOrderService;
+    private final WebPushService webPushService;
 
     // ── Config
     @Value("${stripe.secret-key}")
@@ -237,10 +238,17 @@ public class PaymentService {
             if (maybeMethod != null) o.setPaymentMethod(maybeMethod);
             if (status == PaymentStatus.SUCCEEDED && o.getStatus() == OrderStatus.NEW) {
                 o.setStatus(OrderStatus.CONFIRMED);
-                // Send confirmation to customer (with track link)
-                customerOrderService.sendCustomerConfirmationWithTrackLink(o);
             }
             customerOrderRepo.save(o);
+
+            if (status == PaymentStatus.SUCCEEDED) {
+                try {
+                    webPushService.broadcast("admin",
+                            """
+                            {"title":"New Order (Menu)","body":"Paid %s order %s","url":"/admin/orders"}
+                            """.formatted(o.getOrderType(), o.getId()));
+                } catch (Exception ignored) {}
+            }
         });
 
         buffetOrderRepo.findByPaymentIntentId(paymentIntentId).ifPresent(o -> {
@@ -248,10 +256,19 @@ public class PaymentService {
             if (maybeMethod != null) o.setPaymentMethod(maybeMethod);
             if (status == PaymentStatus.SUCCEEDED && o.getStatus() == OrderStatus.NEW) {
                 o.setStatus(OrderStatus.CONFIRMED);
-                buffetOrderService.sendCustomerConfirmationWithTrackLink(o);
             }
             buffetOrderRepo.save(o);
+
+            if (status == PaymentStatus.SUCCEEDED) {
+                try {
+                    webPushService.broadcast("admin",
+                            """
+                            {"title":"New Order (Buffet)","body":"Paid %s order %s","url":"/admin/buffet-orders"}
+                            """.formatted(o.getOrderType(), o.getId()));
+                } catch (Exception ignored) {}
+            }
         });
+
     }
 
     // ───────────────────────────────────────────────────────────

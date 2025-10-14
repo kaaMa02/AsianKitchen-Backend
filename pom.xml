@@ -9,7 +9,7 @@
 	<parent>
 		<groupId>org.springframework.boot</groupId>
 		<artifactId>spring-boot-starter-parent</artifactId>
-		<version>3.5.2</version>
+		<version>3.5.5</version>
 		<relativePath/>
 	</parent>
 
@@ -24,7 +24,38 @@
 		<flyway.version>10.15.0</flyway.version>
 		<lombok.version>1.18.32</lombok.version>
 		<maven-compiler-plugin.version>3.10.1</maven-compiler-plugin.version>
+
+		<!-- Security-pinned versions -->
+		<jose4j.version>0.9.4</jose4j.version>
+		<ahc.version>3.0.1</ahc.version>
+		<logback.version>1.5.19</logback.version>
 	</properties>
+
+	<!-- Pin/override transitive versions to safe ones, regardless of who brings them in -->
+	<dependencyManagement>
+		<dependencies>
+			<dependency>
+				<groupId>org.bitbucket.b_c</groupId>
+				<artifactId>jose4j</artifactId>
+				<version>${jose4j.version}</version>
+			</dependency>
+			<dependency>
+				<groupId>org.asynchttpclient</groupId>
+				<artifactId>async-http-client</artifactId>
+				<version>${ahc.version}</version>
+			</dependency>
+			<dependency>
+				<groupId>ch.qos.logback</groupId>
+				<artifactId>logback-core</artifactId>
+				<version>${logback.version}</version>
+			</dependency>
+			<dependency>
+				<groupId>ch.qos.logback</groupId>
+				<artifactId>logback-classic</artifactId>
+				<version>${logback.version}</version>
+			</dependency>
+		</dependencies>
+	</dependencyManagement>
 
 	<dependencies>
 		<!-- Spring Boot Starters -->
@@ -108,19 +139,19 @@
 			<scope>test</scope>
 		</dependency>
 
-		<!-- JavaMail / Jakarta Mail autoconfig -->
+		<!-- Mail -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-mail</artifactId>
 		</dependency>
 
-		<!-- validation if you use @Valid/@Email etc. -->
+		<!-- Bean Validation -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-validation</artifactId>
 		</dependency>
 
-		<!-- (Optional) HTML templates for email -->
+		<!-- (Optional) Thymeleaf for emails -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-thymeleaf</artifactId>
@@ -131,6 +162,51 @@
 			<groupId>com.stripe</groupId>
 			<artifactId>stripe-java</artifactId>
 			<version>24.0.0</version>
+		</dependency>
+
+		<!-- Web Push (exclude old transitive jose4j/AHC) -->
+		<dependency>
+			<groupId>nl.martijndwars</groupId>
+			<artifactId>web-push</artifactId>
+			<version>5.1.1</version>
+			<exclusions>
+				<exclusion>
+					<groupId>org.bitbucket.b_c</groupId>
+					<artifactId>jose4j</artifactId>
+				</exclusion>
+				<exclusion>
+					<groupId>org.asynchttpclient</groupId>
+					<artifactId>async-http-client</artifactId>
+				</exclusion>
+			</exclusions>
+		</dependency>
+
+		<!-- Bring safe jose4j explicitly -->
+		<dependency>
+			<groupId>org.bitbucket.b_c</groupId>
+			<artifactId>jose4j</artifactId>
+			<version>${jose4j.version}</version>
+		</dependency>
+
+		<!-- Only needed if your tree still includes AHC; otherwise you can remove this.
+             Keeping it optional ensures it won’t bloat your runtime. -->
+		<dependency>
+			<groupId>org.asynchttpclient</groupId>
+			<artifactId>async-http-client</artifactId>
+			<version>${ahc.version}</version>
+			<optional>true</optional>
+		</dependency>
+
+		<!-- Pin logback to safe version to satisfy SCA -->
+		<dependency>
+			<groupId>ch.qos.logback</groupId>
+			<artifactId>logback-core</artifactId>
+			<version>${logback.version}</version>
+		</dependency>
+		<dependency>
+			<groupId>ch.qos.logback</groupId>
+			<artifactId>logback-classic</artifactId>
+			<version>${logback.version}</version>
 		</dependency>
 	</dependencies>
 

@@ -20,10 +20,12 @@ import java.util.stream.*;
 public class BuffetOrderService {
     private final BuffetOrderRepository repo;
     private final EmailService email;
+    private final WebPushService webPushService;
 
-    public BuffetOrderService(BuffetOrderRepository repo, EmailService email) {
+    public BuffetOrderService(BuffetOrderRepository repo, EmailService email, WebPushService webPushService) {
         this.repo = repo;
         this.email = email;
+        this.webPushService = webPushService;
     }
 
     @Transactional
@@ -34,6 +36,15 @@ public class BuffetOrderService {
             order.setPaymentStatus(PaymentStatus.NOT_REQUIRED);
         }
         var saved = repo.save(order);
+
+        if (order.getPaymentMethod() != PaymentMethod.CARD) {
+            try {
+                webPushService.broadcast("admin",
+                        """
+                        {"title":"New Order (Buffet)","body":"%s order %s","url":"/admin/buffet-orders"}
+                        """.formatted(order.getOrderType(), order.getId()));
+            } catch (Exception ignored) {}
+        }
 
         if (saved.getPaymentMethod() != PaymentMethod.CARD) {
             sendCustomerConfirmationWithTrackLink(saved);

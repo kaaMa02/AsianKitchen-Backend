@@ -19,11 +19,13 @@ public class CustomerOrderService {
     private final CustomerOrderRepository repo;
     private final MenuItemRepository menuItemRepo;
     private final EmailService email;
+    private final WebPushService webPushService;
 
-    public CustomerOrderService(CustomerOrderRepository repo, MenuItemRepository menuItemRepo, EmailService email) {
+    public CustomerOrderService(CustomerOrderRepository repo, MenuItemRepository menuItemRepo, EmailService email, WebPushService webPushService) {
         this.repo = repo;
         this.menuItemRepo = menuItemRepo;
         this.email = email;
+        this.webPushService = webPushService;
     }
 
     @Transactional
@@ -51,6 +53,16 @@ public class CustomerOrderService {
         }
 
         var saved = repo.save(order);
+
+        if (order.getPaymentMethod() != PaymentMethod.CARD) {
+            try {
+                webPushService.broadcast("admin",
+                        """
+                        {"title":"New Order (Menu)","body":"%s order %s","url":"/admin/orders"}
+                        """.formatted(order.getOrderType(), order.getId()));
+            } catch (Exception ignored) {}
+        }
+
 
         if (saved.getPaymentMethod() != PaymentMethod.CARD) {
             sendCustomerConfirmationWithTrackLink(saved);
