@@ -51,28 +51,44 @@ public class CustomerOrderService {
         var order = dto.toEntity();
         order.setStatus(OrderStatus.NEW);
 
-        // Attach real menu items & validate availability
+        if (order.getOrderItems() == null || order.getOrderItems().isEmpty()) {
+            throw new IllegalArgumentException("Order must contain at least one item.");
+        }
+
+        // Attach real menu items & validate availability / quantity
         order.getOrderItems().forEach(oi -> {
+            if (oi.getQuantity() <= 0) {
+                throw new IllegalArgumentException("Each item must have a quantity of at least 1.");
+            }
             UUID id = oi.getMenuItem().getId();
             MenuItem mi = menuItemRepo.findById(id)
                     .orElseThrow(() -> new ResourceNotFoundException("MenuItem", id));
+
             if (!mi.isAvailable()) {
-                // Safe item name for error text
                 String itemName = Optional.ofNullable(mi.getFoodItem())
                         .map(FoodItem::getName).orElse("Item " + mi.getId());
                 throw new IllegalArgumentException("Menu item not available: " + itemName);
             }
+
             oi.setMenuItem(mi);
             oi.setCustomerOrder(order);
         });
 
-        // Compute total from DB prices (pre-discount "items")
+        // Compute total from DB prices (pre-discount "items") — null-safe
         BigDecimal items = order.getOrderItems().stream()
-                .map(oi -> oi.getMenuItem().getPrice().multiply(BigDecimal.valueOf(oi.getQuantity())))
+                .map(oi -> {
+                    BigDecimal unit = Optional.ofNullable(oi.getMenuItem().getPrice()).orElse(BigDecimal.ZERO);
+                    if (unit.compareTo(BigDecimal.ZERO) <= 0) {
+                        String nm = Optional.ofNullable(oi.getMenuItem().getFoodItem())
+                                .map(FoodItem::getName).orElse("Item " + oi.getMenuItem().getId());
+                        throw new IllegalArgumentException("Price missing or zero for: " + nm);
+                    }
+                    return unit.multiply(BigDecimal.valueOf(oi.getQuantity()));
+                })
                 .reduce(BigDecimal.ZERO, BigDecimal::add)
                 .setScale(2, RoundingMode.HALF_UP);
 
-        // Always compute + snapshot totals here (for cash/TWINT/POS there is no later Stripe step)
+        // Discount → VAT → Delivery → Grand
         var dr = discountForMenu(items);
         BigDecimal vat = calcVat(order.getOrderType(), dr.discountedItems());
         BigDecimal delivery = calcDelivery(order.getOrderType(), dr.discountedItems());
@@ -92,7 +108,7 @@ public class CustomerOrderService {
 
         var saved = repo.save(order);
 
-        // Push (only for non-card because paid card orders push on webhook)
+        // Push (only for non-card; paid card orders are pushed on webhook)
         if (saved.getPaymentMethod() != PaymentMethod.CARD) {
             try {
                 webPushService.broadcast("admin",
@@ -102,11 +118,9 @@ public class CustomerOrderService {
             } catch (Exception ignored) {}
         }
 
-        // Email confirmation for non-card right away (card path emails on webhook)
+        // Email confirmation for non-card right away (card emails on webhook)
         if (saved.getPaymentMethod() != PaymentMethod.CARD) {
-            try {
-                sendCustomerConfirmationWithTrackLink(saved);
-            } catch (Exception ignored) {}
+            try { sendCustomerConfirmationWithTrackLink(saved); } catch (Exception ignored) {}
         }
 
         return CustomerOrderReadDTO.fromEntity(saved);
