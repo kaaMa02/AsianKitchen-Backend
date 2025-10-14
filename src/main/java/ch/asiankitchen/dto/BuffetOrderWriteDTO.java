@@ -18,8 +18,7 @@ import java.util.UUID;
 public class BuffetOrderWriteDTO {
     private UUID userId;
 
-    @NotNull
-    @Valid
+    @NotNull @Valid
     private CustomerInfoDTO customerInfo;
 
     @NotNull
@@ -27,8 +26,7 @@ public class BuffetOrderWriteDTO {
 
     private String specialInstructions;
 
-    @NotEmpty
-    @Valid
+    @NotEmpty @Valid
     private List<BuffetOrderItemWriteDTO> items;
 
     @NotNull

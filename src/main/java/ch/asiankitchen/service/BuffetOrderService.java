@@ -3,46 +3,80 @@ package ch.asiankitchen.service;
 import ch.asiankitchen.dto.BuffetOrderReadDTO;
 import ch.asiankitchen.dto.BuffetOrderWriteDTO;
 import ch.asiankitchen.exception.ResourceNotFoundException;
-import ch.asiankitchen.model.BuffetOrder;
-import ch.asiankitchen.model.OrderStatus;
-import ch.asiankitchen.model.PaymentMethod;
-import ch.asiankitchen.model.PaymentStatus;
+import ch.asiankitchen.model.*;
 import ch.asiankitchen.repository.BuffetOrderRepository;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.util.UriUtils;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
-import java.util.stream.*;
+import java.util.stream.Collectors;
 
 @Service
 public class BuffetOrderService {
     private final BuffetOrderRepository repo;
     private final EmailService email;
     private final WebPushService webPushService;
+    private final DiscountService discountService;
 
-    public BuffetOrderService(BuffetOrderRepository repo, EmailService email, WebPushService webPushService) {
+    public BuffetOrderService(BuffetOrderRepository repo,
+                              EmailService email,
+                              WebPushService webPushService,
+                              DiscountService discountService) {
         this.repo = repo;
         this.email = email;
         this.webPushService = webPushService;
+        this.discountService = discountService;
     }
+
+    @Value("${vat.ratePercent:2.6}")
+    private BigDecimal vatRatePercent;
+
+    @Value("${app.delivery.fee-chf:5.00}")
+    private BigDecimal deliveryFeeChf;
+
+    @Value("${app.delivery.free-threshold-chf:100.00}")
+    private BigDecimal freeDeliveryThresholdChf;
 
     @Transactional
     public BuffetOrderReadDTO create(BuffetOrderWriteDTO dto) {
         var order = dto.toEntity();
         order.setStatus(OrderStatus.NEW);
+
+        // Buffet total before discount = current entity total
+        BigDecimal items = Optional.ofNullable(order.getTotalPrice())
+                .orElse(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
+
+        // Snapshot always (cash/TWINT/POS need it now)
+        var dr = discountForBuffet(items);
+        BigDecimal vat = calcVat(order.getOrderType(), dr.discountedItems());
+        BigDecimal delivery = calcDelivery(order.getOrderType(), dr.discountedItems());
+        BigDecimal grand = dr.discountedItems().add(vat).add(delivery).setScale(2, RoundingMode.HALF_UP);
+
+        order.setItemsSubtotalBeforeDiscount(items);
+        order.setDiscountPercent(dr.percent());
+        order.setDiscountAmount(dr.amount());
+        order.setItemsSubtotalAfterDiscount(dr.discountedItems());
+        order.setVatAmount(vat);
+        order.setDeliveryFee(delivery);
+        order.setTotalPrice(grand);
+
         if (order.getPaymentMethod() != PaymentMethod.CARD) {
             order.setPaymentStatus(PaymentStatus.NOT_REQUIRED);
         }
+
         var saved = repo.save(order);
 
-        if (order.getPaymentMethod() != PaymentMethod.CARD) {
+        if (saved.getPaymentMethod() != PaymentMethod.CARD) {
             try {
                 webPushService.broadcast("admin",
                         """
                         {"title":"New Order (Buffet)","body":"%s order %s","url":"/admin/buffet-orders"}
-                        """.formatted(order.getOrderType(), order.getId()));
+                        """.formatted(saved.getOrderType(), saved.getId()));
             } catch (Exception ignored) {}
         }
 
@@ -81,14 +115,6 @@ public class BuffetOrderService {
                 .stream().map(BuffetOrderReadDTO::fromEntity).toList();
     }
 
-    @Transactional(readOnly = true)
-    public BuffetOrderReadDTO track(UUID id, String email) {
-        return repo.findById(id)
-                .filter(o -> o.getCustomerInfo().getEmail().equalsIgnoreCase(email))
-                .map(BuffetOrderReadDTO::fromEntity)
-                .orElseThrow(() -> new ResourceNotFoundException("BuffetOrder", id));
-    }
-
     @Transactional
     public BuffetOrderReadDTO updateStatus(UUID id, OrderStatus status) {
         var order = repo.findById(id)
@@ -97,7 +123,14 @@ public class BuffetOrderService {
         return BuffetOrderReadDTO.fromEntity(repo.save(order));
     }
 
-    /** Call this from your Stripe webhook when payment becomes SUCCEEDED */
+    @Transactional(readOnly = true)
+    public BuffetOrderReadDTO track(UUID id, String emailAddr) {
+        return repo.findById(id)
+                .filter(o -> o.getCustomerInfo().getEmail().equalsIgnoreCase(emailAddr))
+                .map(BuffetOrderReadDTO::fromEntity)
+                .orElseThrow(() -> new ResourceNotFoundException("BuffetOrder", id));
+    }
+
     public void sendCustomerConfirmationWithTrackLink(BuffetOrder order) {
         final String to = order.getCustomerInfo().getEmail();
         if (to == null || to.isBlank()) return;
@@ -109,7 +142,7 @@ public class BuffetOrderService {
         String body = """
                 Hi %s,
 
-                Thanks for your buffet order! We have received your payment.
+                Thanks for your order! We have received your%s.
 
                 You can track your order here:
                 %s
@@ -119,7 +152,8 @@ public class BuffetOrderService {
 
                 — Asian Kitchen
                 """.formatted(
-                nullSafe(order.getCustomerInfo().getFirstName()),
+                Optional.ofNullable(order.getCustomerInfo().getFirstName()).orElse(""),
+                order.getPaymentMethod() == PaymentMethod.CARD ? " payment" : " order",
                 trackUrl,
                 order.getId(),
                 order.getTotalPrice()
@@ -128,6 +162,29 @@ public class BuffetOrderService {
         email.sendSimple(to, subject, body, null);
     }
 
-    private static String nullSafe(String s) { return s == null ? "" : s; }
+    /* ---------- helpers ---------- */
 
+    private record Discount(BigDecimal discountedItems, BigDecimal amount, BigDecimal percent) {}
+
+    private Discount discountForBuffet(BigDecimal itemsSubtotal) {
+        var active = discountService.resolveActive();
+        BigDecimal pct = Optional.ofNullable(active.percentBuffet()).orElse(BigDecimal.ZERO);
+        BigDecimal rate = pct.divide(new BigDecimal("100"), 6, RoundingMode.HALF_UP);
+        BigDecimal discount = itemsSubtotal.multiply(rate).setScale(2, RoundingMode.HALF_UP);
+        BigDecimal discounted = itemsSubtotal.subtract(discount).max(BigDecimal.ZERO);
+        return new Discount(discounted, discount, pct);
+    }
+
+    private BigDecimal calcVat(OrderType orderType, BigDecimal itemsAfterDiscount) {
+        boolean taxable = (orderType == OrderType.TAKEAWAY || orderType == OrderType.DELIVERY);
+        if (!taxable) return BigDecimal.ZERO;
+        BigDecimal rate = vatRatePercent.divide(BigDecimal.valueOf(100), 6, RoundingMode.HALF_UP);
+        return itemsAfterDiscount.multiply(rate).setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private BigDecimal calcDelivery(OrderType orderType, BigDecimal itemsAfterDiscount) {
+        if (orderType != OrderType.DELIVERY) return BigDecimal.ZERO;
+        if (itemsAfterDiscount.compareTo(freeDeliveryThresholdChf) >= 0) return BigDecimal.ZERO;
+        return deliveryFeeChf.setScale(2, RoundingMode.HALF_UP);
+    }
 }

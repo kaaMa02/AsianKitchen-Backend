@@ -5,48 +5,82 @@ import ch.asiankitchen.exception.ResourceNotFoundException;
 import ch.asiankitchen.model.*;
 import ch.asiankitchen.repository.CustomerOrderRepository;
 import ch.asiankitchen.repository.MenuItemRepository;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.util.UriUtils;
 
 import java.math.BigDecimal;
-import java.nio.charset.StandardCharsets;
+import java.math.RoundingMode;
 import java.util.*;
-import java.util.stream.*;
+import java.util.stream.Collectors;
 
 @Service
 public class CustomerOrderService {
+
     private final CustomerOrderRepository repo;
     private final MenuItemRepository menuItemRepo;
     private final EmailService email;
     private final WebPushService webPushService;
+    private final DiscountService discountService;
 
-    public CustomerOrderService(CustomerOrderRepository repo, MenuItemRepository menuItemRepo, EmailService email, WebPushService webPushService) {
+    public CustomerOrderService(CustomerOrderRepository repo,
+                                MenuItemRepository menuItemRepo,
+                                EmailService email,
+                                WebPushService webPushService,
+                                DiscountService discountService) {
         this.repo = repo;
         this.menuItemRepo = menuItemRepo;
         this.email = email;
         this.webPushService = webPushService;
+        this.discountService = discountService;
     }
+
+    @Value("${vat.ratePercent:2.6}")
+    private BigDecimal vatRatePercent;
+
+    @Value("${app.delivery.fee-chf:5.00}")
+    private BigDecimal deliveryFeeChf;
+
+    @Value("${app.delivery.free-threshold-chf:100.00}")
+    private BigDecimal freeDeliveryThresholdChf;
 
     @Transactional
     public CustomerOrderReadDTO create(CustomerOrderWriteDTO dto) {
         var order = dto.toEntity();
-        order.setStatus(OrderStatus.NEW); // paymentStatus defaults in @PrePersist
+        order.setStatus(OrderStatus.NEW);
 
-        // Attach real MenuItem entities (and sanity checks)
+        // Attach real menu items & validate availability
         order.getOrderItems().forEach(oi -> {
-            var id = oi.getMenuItem().getId(); // comes from OrderItemWriteDTO
+            UUID id = oi.getMenuItem().getId();
             MenuItem mi = menuItemRepo.findById(id)
                     .orElseThrow(() -> new ResourceNotFoundException("MenuItem", id));
             if (!mi.isAvailable()) {
-                throw new IllegalArgumentException("Menu item not available: " + mi.getId());
+                throw new IllegalArgumentException("Menu item not available: " + mi.getFoodItem().getName());
             }
             oi.setMenuItem(mi);
-            oi.setCustomerOrder(order); // ensure backref
+            oi.setCustomerOrder(order);
         });
 
-        // Compute total from DB prices (server-truth)
-        order.setTotalPrice(computeTotal(order));
+        // Compute total from DB prices (pre-discount "items")
+        BigDecimal items = order.getOrderItems().stream()
+                .map(oi -> oi.getMenuItem().getPrice().multiply(BigDecimal.valueOf(oi.getQuantity())))
+                .reduce(BigDecimal.ZERO, BigDecimal::add)
+                .setScale(2, RoundingMode.HALF_UP);
+
+        // Always compute + snapshot totals here
+        var dr = discountForMenu(items);
+        BigDecimal vat = calcVat(order.getOrderType(), dr.discountedItems());
+        BigDecimal delivery = calcDelivery(order.getOrderType(), dr.discountedItems());
+        BigDecimal grand = dr.discountedItems().add(vat).add(delivery).setScale(2, RoundingMode.HALF_UP);
+
+        order.setItemsSubtotalBeforeDiscount(items);
+        order.setDiscountPercent(dr.percent());
+        order.setDiscountAmount(dr.amount());
+        order.setItemsSubtotalAfterDiscount(dr.discountedItems());
+        order.setVatAmount(vat);
+        order.setDeliveryFee(delivery);
+        order.setTotalPrice(grand);
 
         if (order.getPaymentMethod() != PaymentMethod.CARD) {
             order.setPaymentStatus(PaymentStatus.NOT_REQUIRED);
@@ -54,16 +88,17 @@ public class CustomerOrderService {
 
         var saved = repo.save(order);
 
-        if (order.getPaymentMethod() != PaymentMethod.CARD) {
+        // Push (non-card)
+        if (saved.getPaymentMethod() != PaymentMethod.CARD) {
             try {
                 webPushService.broadcast("admin",
                         """
                         {"title":"New Order (Menu)","body":"%s order %s","url":"/admin/orders"}
-                        """.formatted(order.getOrderType(), order.getId()));
+                        """.formatted(saved.getOrderType(), saved.getId()));
             } catch (Exception ignored) {}
         }
 
-
+        // Email for non-card here (card handled by webhook)
         if (saved.getPaymentMethod() != PaymentMethod.CARD) {
             sendCustomerConfirmationWithTrackLink(saved);
         }
@@ -94,9 +129,9 @@ public class CustomerOrderService {
     }
 
     @Transactional(readOnly = true)
-    public CustomerOrderReadDTO track(UUID id, String email) {
+    public CustomerOrderReadDTO track(UUID id, String emailAddr) {
         return repo.findById(id)
-                .filter(o -> o.getCustomerInfo().getEmail().equalsIgnoreCase(email))
+                .filter(o -> o.getCustomerInfo().getEmail().equalsIgnoreCase(emailAddr))
                 .map(CustomerOrderReadDTO::fromEntity)
                 .orElseThrow(() -> new ResourceNotFoundException("CustomerOrder", id));
     }
@@ -115,20 +150,19 @@ public class CustomerOrderService {
                 .stream().map(CustomerOrderReadDTO::fromEntity).toList();
     }
 
-    /** Call this from your Stripe webhook when the payment becomes SUCCEEDED */
+    /** Send on non-card create or card webhook success. */
     public void sendCustomerConfirmationWithTrackLink(CustomerOrder order) {
         final String to = order.getCustomerInfo().getEmail();
         if (to == null || to.isBlank()) return;
 
-        // Example public tracking link for menu orders
         String trackUrl = "https://asian-kitchen.online/track?orderId=%s&email=%s"
-                .formatted(order.getId(), UriUtils.encode(to, StandardCharsets.UTF_8));
+                .formatted(order.getId(), UriUtils.encode(to, java.nio.charset.StandardCharsets.UTF_8));
 
         String subject = "Your order at Asian Kitchen";
         String body = """
                 Hi %s,
 
-                Thanks for your order! We have received your payment.
+                Thanks for your order! We have received your%s.
 
                 You can track your order here:
                 %s
@@ -138,7 +172,8 @@ public class CustomerOrderService {
 
                 — Asian Kitchen
                 """.formatted(
-                nullSafe(order.getCustomerInfo().getFirstName()),
+                Optional.ofNullable(order.getCustomerInfo().getFirstName()).orElse(""),
+                order.getPaymentMethod() == PaymentMethod.CARD ? " payment" : " order",
                 trackUrl,
                 order.getId(),
                 order.getTotalPrice()
@@ -147,17 +182,29 @@ public class CustomerOrderService {
         email.sendSimple(to, subject, body, null);
     }
 
-    private static String nullSafe(String s) { return s == null ? "" : s; }
+    /* ---------------- helpers ---------------- */
 
-    private BigDecimal computeTotal(CustomerOrder order) {
-        var total = order.getOrderItems().stream()
-                .map(oi -> oi.getMenuItem().getPrice().multiply(BigDecimal.valueOf(oi.getQuantity())))
-                .reduce(BigDecimal.ZERO, BigDecimal::add)
-                .setScale(2, java.math.RoundingMode.HALF_UP);
+    private record Discount(BigDecimal discountedItems, BigDecimal amount, BigDecimal percent) {}
 
-        if (total.compareTo(BigDecimal.ZERO) <= 0) {
-            throw new IllegalArgumentException("Order total must be greater than zero.");
-        }
-        return total;
+    private Discount discountForMenu(BigDecimal itemsSubtotal) {
+        var active = discountService.resolveActive();
+        BigDecimal pct = Optional.ofNullable(active.percentMenu()).orElse(BigDecimal.ZERO);
+        BigDecimal rate = pct.divide(new BigDecimal("100"), 6, RoundingMode.HALF_UP);
+        BigDecimal discount = itemsSubtotal.multiply(rate).setScale(2, RoundingMode.HALF_UP);
+        BigDecimal discounted = itemsSubtotal.subtract(discount).max(BigDecimal.ZERO);
+        return new Discount(discounted, discount, pct);
+    }
+
+    private BigDecimal calcVat(OrderType orderType, BigDecimal itemsAfterDiscount) {
+        boolean taxable = (orderType == OrderType.TAKEAWAY || orderType == OrderType.DELIVERY);
+        if (!taxable) return BigDecimal.ZERO;
+        BigDecimal rate = vatRatePercent.divide(BigDecimal.valueOf(100), 6, RoundingMode.HALF_UP);
+        return itemsAfterDiscount.multiply(rate).setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private BigDecimal calcDelivery(OrderType orderType, BigDecimal itemsAfterDiscount) {
+        if (orderType != OrderType.DELIVERY) return BigDecimal.ZERO;
+        if (itemsAfterDiscount.compareTo(freeDeliveryThresholdChf) >= 0) return BigDecimal.ZERO;
+        return deliveryFeeChf.setScale(2, RoundingMode.HALF_UP);
     }
 }

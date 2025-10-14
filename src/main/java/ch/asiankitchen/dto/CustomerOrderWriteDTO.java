@@ -4,7 +4,8 @@ import ch.asiankitchen.model.*;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
-import lombok.*;
+import lombok.Builder;
+import lombok.Data;
 
 import java.util.List;
 import java.util.UUID;
@@ -15,8 +16,7 @@ public class CustomerOrderWriteDTO {
 
     private UUID userId;
 
-    @NotNull
-    @Valid
+    @NotNull @Valid
     private CustomerInfoDTO customerInfo;
 
     @NotNull
@@ -27,8 +27,7 @@ public class CustomerOrderWriteDTO {
     @NotNull
     private PaymentMethod paymentMethod;
 
-    @NotEmpty
-    @Valid
+    @NotEmpty @Valid
     private List<OrderItemWriteDTO> items;
 
     public CustomerOrder toEntity() {

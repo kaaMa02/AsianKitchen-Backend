@@ -5,8 +5,10 @@ import lombok.Builder;
 import lombok.Data;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 @Data
@@ -23,6 +25,8 @@ public class BuffetOrderReadDTO {
     private String paymentIntentId;
     private List<BuffetOrderItemReadDTO> orderItems;
     private PaymentMethod paymentMethod;
+
+    // snapshot fields (null-safe)
     private BigDecimal itemsSubtotalBeforeDiscount;
     private BigDecimal discountPercent;
     private BigDecimal discountAmount;
@@ -37,21 +41,29 @@ public class BuffetOrderReadDTO {
                 .orderType(o.getOrderType())
                 .status(o.getStatus())
                 .createdAt(o.getCreatedAt())
-                .totalPrice(o.getTotalPrice())
+                .totalPrice(opt(o.getTotalPrice()))
                 .specialInstructions(o.getSpecialInstructions())
                 .paymentStatus(o.getPaymentStatus())
                 .paymentIntentId(o.getPaymentIntentId())
-                .orderItems(
-                        o.getBuffetOrderItems().stream()
-                                .map(BuffetOrderItemReadDTO::fromEntity).toList()
-                )
+                .orderItems(Optional.ofNullable(o.getBuffetOrderItems())
+                        .orElse(List.of())
+                        .stream()
+                        .map(BuffetOrderItemReadDTO::fromEntity)
+                        .toList())
                 .paymentMethod(o.getPaymentMethod())
-                .itemsSubtotalBeforeDiscount(o.getItemsSubtotalBeforeDiscount())
-                .discountPercent(o.getDiscountPercent())
-                .discountAmount(o.getDiscountAmount())
-                .itemsSubtotalAfterDiscount(o.getItemsSubtotalAfterDiscount())
-                .vatAmount(o.getVatAmount())
-                .deliveryFee(o.getDeliveryFee())
+                .itemsSubtotalBeforeDiscount(opt(o.getItemsSubtotalBeforeDiscount()))
+                .discountPercent(optPct(o.getDiscountPercent()))
+                .discountAmount(opt(o.getDiscountAmount()))
+                .itemsSubtotalAfterDiscount(opt(o.getItemsSubtotalAfterDiscount()))
+                .vatAmount(opt(o.getVatAmount()))
+                .deliveryFee(opt(o.getDeliveryFee()))
                 .build();
+    }
+
+    private static BigDecimal opt(BigDecimal v) {
+        return (v == null ? BigDecimal.ZERO : v).setScale(2, RoundingMode.HALF_UP);
+    }
+    private static BigDecimal optPct(BigDecimal v) {
+        return (v == null ? BigDecimal.ZERO : v.setScale(2, RoundingMode.HALF_UP));
     }
 }
