@@ -79,7 +79,7 @@ public class SecurityConfig {
         return new BCryptPasswordEncoder();
     }
 
-    /** Shared CsrfTokenRepository (JS-readable cookie). */
+    /** JS-readable CSRF cookie for forms that use it. */
     @Bean
     public CookieCsrfTokenRepository csrfRepository() {
         var repo = CookieCsrfTokenRepository.withHttpOnlyFalse();
@@ -117,7 +117,7 @@ public class SecurityConfig {
                     c.configurationSource(source);
                 })
 
-                // CSRF: on for public forms, off for admin API
+                // CSRF: enabled by default but ignored for endpoints that don't send tokens
                 .csrf(csrf -> csrf
                         .csrfTokenRepository(csrfRepository())
                         .ignoringRequestMatchers(
@@ -125,8 +125,9 @@ public class SecurityConfig {
                                 "/api/contact",
                                 "/api/orders",
                                 "/api/reservations",
-                                "/api/payments/**",
-                                "/api/admin/**"   // CSRF disabled for admin endpoints
+                                "/api/payments/**",          // Stripe webhook & intent endpoints
+                                "/api/admin/**",             // your choice to skip CSRF here
+                                "/api/public/webpush/**"     // ✅ Web Push subscribe/key endpoints
                         )
                 )
 
@@ -137,14 +138,17 @@ public class SecurityConfig {
                 .addFilterBefore(cookieJwtFilter, UsernamePasswordAuthenticationFilter.class)
 
                 .authorizeHttpRequests(auth -> auth
-                        // public
+                        // public / health
                         .requestMatchers("/api/ping", "/api/csrf").permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
                         .requestMatchers("/api/stripe/webhook").permitAll()
 
-                        .requestMatchers("api/public/discounts/**").permitAll()
-                        // public reads
+                        // ✅ public discounts + webpush endpoints
+                        .requestMatchers("/api/public/discounts/**").permitAll()
+                        .requestMatchers("/api/public/webpush/**").permitAll()
+
+                        // public reads (track endpoints are plain /track with query params)
                         .requestMatchers(HttpMethod.GET,
                                 "/api/food-items/**",
                                 "/api/menu-items/**",
