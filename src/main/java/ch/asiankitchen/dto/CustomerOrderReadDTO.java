@@ -22,6 +22,12 @@ public class CustomerOrderReadDTO {
     private PaymentStatus paymentStatus;
     private String paymentIntentId;
     private PaymentMethod paymentMethod;
+    private BigDecimal itemsSubtotalBeforeDiscount;
+    private BigDecimal discountPercent;
+    private BigDecimal discountAmount;
+    private BigDecimal itemsSubtotalAfterDiscount;
+    private BigDecimal vatAmount;
+    private BigDecimal deliveryFee;
 
     public static CustomerOrderReadDTO fromEntity(CustomerOrder o) {
         return CustomerOrderReadDTO.builder()
@@ -38,6 +44,12 @@ public class CustomerOrderReadDTO {
                 .paymentStatus(o.getPaymentStatus())
                 .paymentIntentId(o.getPaymentIntentId())
                 .paymentMethod(o.getPaymentMethod())
+                .itemsSubtotalBeforeDiscount(o.getItemsSubtotalBeforeDiscount())
+                .discountPercent(o.getDiscountPercent())
+                .discountAmount(o.getDiscountAmount())
+                .itemsSubtotalAfterDiscount(o.getItemsSubtotalAfterDiscount())
+                .vatAmount(o.getVatAmount())
+                .deliveryFee(o.getDeliveryFee())
                 .build();
     }
 }

@@ -23,6 +23,12 @@ public class BuffetOrderReadDTO {
     private String paymentIntentId;
     private List<BuffetOrderItemReadDTO> orderItems;
     private PaymentMethod paymentMethod;
+    private BigDecimal itemsSubtotalBeforeDiscount;
+    private BigDecimal discountPercent;
+    private BigDecimal discountAmount;
+    private BigDecimal itemsSubtotalAfterDiscount;
+    private BigDecimal vatAmount;
+    private BigDecimal deliveryFee;
 
     public static BuffetOrderReadDTO fromEntity(BuffetOrder o) {
         return BuffetOrderReadDTO.builder()
@@ -40,6 +46,12 @@ public class BuffetOrderReadDTO {
                                 .map(BuffetOrderItemReadDTO::fromEntity).toList()
                 )
                 .paymentMethod(o.getPaymentMethod())
+                .itemsSubtotalBeforeDiscount(o.getItemsSubtotalBeforeDiscount())
+                .discountPercent(o.getDiscountPercent())
+                .discountAmount(o.getDiscountAmount())
+                .itemsSubtotalAfterDiscount(o.getItemsSubtotalAfterDiscount())
+                .vatAmount(o.getVatAmount())
+                .deliveryFee(o.getDeliveryFee())
                 .build();
     }
 }

@@ -34,6 +34,11 @@ public class BuffetOrderService {
             order.setPaymentStatus(PaymentStatus.NOT_REQUIRED);
         }
         var saved = repo.save(order);
+
+        if (saved.getPaymentMethod() != PaymentMethod.CARD) {
+            sendCustomerConfirmationWithTrackLink(saved);
+        }
+
         return BuffetOrderReadDTO.fromEntity(saved);
     }
 

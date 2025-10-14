@@ -63,6 +63,24 @@ public class CustomerOrder {
     @Column(name="payment_method", length=30)
     private PaymentMethod paymentMethod;
 
+    @Column(precision = 10, scale = 2)
+    private BigDecimal itemsSubtotalBeforeDiscount;
+
+    @Column(precision = 5,  scale = 2)
+    private BigDecimal discountPercent;
+
+    @Column(precision = 10, scale = 2)
+    private BigDecimal discountAmount;
+
+    @Column(precision = 10, scale = 2)
+    private BigDecimal itemsSubtotalAfterDiscount;
+
+    @Column(precision = 10, scale = 2)
+    private BigDecimal vatAmount;
+
+    @Column(precision = 10, scale = 2)
+    private BigDecimal deliveryFee;
+
     @PrePersist
     protected void onCreate() {
         this.createdAt = LocalDateTime.now();

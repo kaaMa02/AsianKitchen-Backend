@@ -15,6 +15,7 @@ import com.stripe.param.PaymentIntentCreateParams;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -27,12 +28,16 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class PaymentService {
 
+    // ── Repos
     private final CustomerOrderRepository customerOrderRepo;
     private final BuffetOrderRepository buffetOrderRepo;
 
-    // If you do not have DiscountService wired yet, swap this to a simple no-op bean.
+    // ── Services (used for discount resolution and sending email after webhook success)
     private final DiscountService discountService;
+    private final CustomerOrderService customerOrderService;
+    private final BuffetOrderService buffetOrderService;
 
+    // ── Config
     @Value("${stripe.secret-key}")
     private String secretKey;
 
@@ -84,11 +89,10 @@ public class PaymentService {
 
         enforceDeliveryZone(order.getOrderType(), order.getCustomerInfo());
 
+        // Server-truth items subtotal from DB prices
         BigDecimal items = order.getOrderItems().stream()
-                .map(oi -> {
-                    BigDecimal price = Optional.ofNullable(oi.getMenuItem().getPrice()).orElse(BigDecimal.ZERO);
-                    return price.multiply(BigDecimal.valueOf(oi.getQuantity()));
-                })
+                .map(oi -> Optional.ofNullable(oi.getMenuItem().getPrice()).orElse(BigDecimal.ZERO)
+                        .multiply(BigDecimal.valueOf(oi.getQuantity())))
                 .reduce(BigDecimal.ZERO, BigDecimal::add)
                 .setScale(2, RoundingMode.HALF_UP);
 
@@ -96,13 +100,19 @@ public class PaymentService {
             enforceMinOrder(items);
         }
 
+        // Discount → VAT → Delivery → Grand
         DiscountResult dr = applyDiscountMenu(items);
-
         BigDecimal vat = calcVat(order.getOrderType(), dr.discountedItems());
         BigDecimal delivery = calcDeliveryFee(order.getOrderType(), dr.discountedItems());
         BigDecimal grand = dr.discountedItems().add(vat).add(delivery).setScale(2, RoundingMode.HALF_UP);
 
-        // If you later add fields for discount snapshot on the entity, set them here.
+        // Snapshot on entity
+        order.setItemsSubtotalBeforeDiscount(items);
+        order.setDiscountPercent(dr.discountPercent());
+        order.setDiscountAmount(dr.discountAmount());
+        order.setItemsSubtotalAfterDiscount(dr.discountedItems());
+        order.setVatAmount(vat);
+        order.setDeliveryFee(delivery);
         order.setTotalPrice(grand);
         customerOrderRepo.save(order);
 
@@ -133,6 +143,7 @@ public class PaymentService {
 
         enforceDeliveryZone(order.getOrderType(), order.getCustomerInfo());
 
+        // BuffetOrder.totalPrice is the sum of items (see entity recalc) → treat as items pre-discount
         BigDecimal items = Optional.ofNullable(order.getTotalPrice()).orElse(BigDecimal.ZERO)
                 .setScale(2, RoundingMode.HALF_UP);
 
@@ -141,11 +152,17 @@ public class PaymentService {
         }
 
         DiscountResult dr = applyDiscountBuffet(items);
-
         BigDecimal vat = calcVat(order.getOrderType(), dr.discountedItems());
         BigDecimal delivery = calcDeliveryFee(order.getOrderType(), dr.discountedItems());
         BigDecimal grand = dr.discountedItems().add(vat).add(delivery).setScale(2, RoundingMode.HALF_UP);
 
+        // Snapshot on entity
+        order.setItemsSubtotalBeforeDiscount(items);
+        order.setDiscountPercent(dr.discountPercent());
+        order.setDiscountAmount(dr.discountAmount());
+        order.setItemsSubtotalAfterDiscount(dr.discountedItems());
+        order.setVatAmount(vat);
+        order.setDeliveryFee(delivery);
         order.setTotalPrice(grand);
         buffetOrderRepo.save(order);
 
@@ -196,7 +213,7 @@ public class PaymentService {
                             resolveMethod(ch));
                 }
             }
-            default -> { }
+            default -> { /* ignore */ }
         }
     }
 
@@ -220,6 +237,8 @@ public class PaymentService {
             if (maybeMethod != null) o.setPaymentMethod(maybeMethod);
             if (status == PaymentStatus.SUCCEEDED && o.getStatus() == OrderStatus.NEW) {
                 o.setStatus(OrderStatus.CONFIRMED);
+                // Send confirmation to customer (with track link)
+                customerOrderService.sendCustomerConfirmationWithTrackLink(o);
             }
             customerOrderRepo.save(o);
         });
@@ -229,6 +248,7 @@ public class PaymentService {
             if (maybeMethod != null) o.setPaymentMethod(maybeMethod);
             if (status == PaymentStatus.SUCCEEDED && o.getStatus() == OrderStatus.NEW) {
                 o.setStatus(OrderStatus.CONFIRMED);
+                buffetOrderService.sendCustomerConfirmationWithTrackLink(o);
             }
             buffetOrderRepo.save(o);
         });
@@ -238,7 +258,7 @@ public class PaymentService {
     // DISCOUNT HELPERS
     // ───────────────────────────────────────────────────────────
     private DiscountResult applyDiscountMenu(BigDecimal itemsSubtotal) {
-        var active = discountService.resolveActive(); // returns percents as BigDecimal; default 0
+        var active = discountService.resolveActive(); // percents as BigDecimal; default 0
         BigDecimal pct = active.percentMenu() == null ? BigDecimal.ZERO : active.percentMenu();
         BigDecimal rate = pct.divide(new BigDecimal("100"), 6, RoundingMode.HALF_UP);
         BigDecimal discount = itemsSubtotal.multiply(rate).setScale(2, RoundingMode.HALF_UP);

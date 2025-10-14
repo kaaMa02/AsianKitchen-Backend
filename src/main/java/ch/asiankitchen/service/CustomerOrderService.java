@@ -51,6 +51,11 @@ public class CustomerOrderService {
         }
 
         var saved = repo.save(order);
+
+        if (saved.getPaymentMethod() != PaymentMethod.CARD) {
+            sendCustomerConfirmationWithTrackLink(saved);
+        }
+
         return CustomerOrderReadDTO.fromEntity(saved);
     }
 
