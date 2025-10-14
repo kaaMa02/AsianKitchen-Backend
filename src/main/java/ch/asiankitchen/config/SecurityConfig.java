@@ -117,17 +117,18 @@ public class SecurityConfig {
                     c.configurationSource(source);
                 })
 
-                // CSRF: enabled by default but ignored for endpoints that don't send tokens
+                // CSRF: enabled, but ignored where the frontend won't send tokens
                 .csrf(csrf -> csrf
                         .csrfTokenRepository(csrfRepository())
                         .ignoringRequestMatchers(
                                 "/api/auth/**",
                                 "/api/contact",
                                 "/api/orders",
+                                "/api/buffet-orders",
                                 "/api/reservations",
-                                "/api/payments/**",          // Stripe webhook & intent endpoints
-                                "/api/admin/**",             // your choice to skip CSRF here
-                                "/api/public/webpush/**"     // ✅ Web Push subscribe/key endpoints
+                                "/api/payments/**",          // webhook + intents
+                                "/api/admin/**",             // if your admin calls are XHR-only
+                                "/api/public/webpush/**"     // VAPID key + subscribe
                         )
                 )
 
@@ -138,31 +139,40 @@ public class SecurityConfig {
                 .addFilterBefore(cookieJwtFilter, UsernamePasswordAuthenticationFilter.class)
 
                 .authorizeHttpRequests(auth -> auth
-                        // public / health
+                        // health / utils
                         .requestMatchers("/api/ping", "/api/csrf").permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
-                        .requestMatchers("/api/stripe/webhook").permitAll()
 
-                        // ✅ public discounts + webpush endpoints
+                        // Stripe
+                        .requestMatchers("/api/payments/webhook").permitAll()
+                        .requestMatchers("/api/payments/**").permitAll() // intents are public
+
+                        // public endpoints
                         .requestMatchers("/api/public/discounts/**").permitAll()
                         .requestMatchers("/api/public/webpush/**").permitAll()
 
-                        // public reads (track endpoints are plain /track with query params)
+                        // catalog / info reads
                         .requestMatchers(HttpMethod.GET,
                                 "/api/food-items/**",
                                 "/api/menu-items/**",
                                 "/api/buffet-items/**",
-                                "/api/restaurant-info/**",
+                                "/api/restaurant-info/**"
+                        ).permitAll()
+
+                        // tracking (both styles)
+                        .requestMatchers(HttpMethod.GET,
+                                "/api/orders/track",
                                 "/api/orders/*/track",
+                                "/api/buffet-orders/track",
                                 "/api/buffet-orders/*/track"
                         ).permitAll()
 
                         // public writes
                         .requestMatchers(HttpMethod.POST, "/api/contact").permitAll()
                         .requestMatchers("/api/contact/**").permitAll()
-                        .requestMatchers("/api/payments/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/orders").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/buffet-orders").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/reservations").permitAll()
 
                         // auth endpoints
@@ -180,7 +190,7 @@ public class SecurityConfig {
         return http.build();
     }
 
-    // Optional rate limiter registration
+    // Optional: rate limiter for spammy endpoints
     @Bean
     public FilterRegistrationBean<RateLimitFilter> rateLimitRegistration(RateLimitFilter f) {
         var reg = new FilterRegistrationBean<>(f);

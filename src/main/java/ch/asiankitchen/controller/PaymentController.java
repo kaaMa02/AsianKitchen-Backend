@@ -36,6 +36,7 @@ public class PaymentController {
         return Map.of("clientSecret", pi.getClientSecret());
     }
 
+    /** Stripe webhook (public) */
     @PostMapping("/webhook")
     public ResponseEntity<String> handleWebhook(
             @RequestBody String payload,

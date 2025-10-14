@@ -24,8 +24,7 @@ public class CustomerOrderController {
     }
 
     @PostMapping
-    public ResponseEntity<CustomerOrderReadDTO> create(
-            @Valid @RequestBody CustomerOrderWriteDTO dto) {
+    public ResponseEntity<CustomerOrderReadDTO> create(@Valid @RequestBody CustomerOrderWriteDTO dto) {
         CustomerOrderReadDTO created = service.create(dto);
         URI location = ServletUriComponentsBuilder.fromCurrentRequest()
                 .path("/{id}")
@@ -45,17 +44,24 @@ public class CustomerOrderController {
     }
 
     @PatchMapping("/{id}/status")
-    public CustomerOrderReadDTO updateStatus(
-            @PathVariable UUID id,
-            @Valid @RequestBody OrderStatusDTO dto) {
+    public CustomerOrderReadDTO updateStatus(@PathVariable UUID id, @Valid @RequestBody OrderStatusDTO dto) {
         OrderStatus newStatus = OrderStatus.valueOf(dto.getStatus());
         return service.updateStatus(id, newStatus);
     }
 
+    /** Tracking (query style) — public */
     @GetMapping("/track")
-    public CustomerOrderReadDTO track(
+    public CustomerOrderReadDTO trackByQuery(
             @RequestParam UUID orderId,
             @RequestParam String email) {
         return service.track(orderId, email);
+    }
+
+    /** Tracking (path style) — public, equivalent to the above */
+    @GetMapping("/{id}/track")
+    public CustomerOrderReadDTO trackByPath(
+            @PathVariable("id") UUID id,
+            @RequestParam String email) {
+        return service.track(id, email);
     }
 }

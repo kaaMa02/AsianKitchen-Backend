@@ -24,8 +24,7 @@ public class BuffetOrderController {
     }
 
     @PostMapping
-    public ResponseEntity<BuffetOrderReadDTO> create(
-            @Valid @RequestBody BuffetOrderWriteDTO dto) {
+    public ResponseEntity<BuffetOrderReadDTO> create(@Valid @RequestBody BuffetOrderWriteDTO dto) {
         BuffetOrderReadDTO created = service.create(dto);
         URI location = ServletUriComponentsBuilder.fromCurrentRequest()
                 .path("/{id}")
@@ -44,18 +43,25 @@ public class BuffetOrderController {
         return service.listByUser(userId);
     }
 
+    @PatchMapping("/{id}/status")
+    public BuffetOrderReadDTO updateStatus(@PathVariable UUID id, @RequestBody Map<String,String> body) {
+        OrderStatus status = OrderStatus.valueOf(body.get("status"));
+        return service.updateStatus(id, status);
+    }
+
+    /** Tracking (query style) — public */
     @GetMapping("/track")
-    public BuffetOrderReadDTO track(
+    public BuffetOrderReadDTO trackByQuery(
             @RequestParam UUID orderId,
             @RequestParam String email) {
         return service.track(orderId, email);
     }
 
-    @PatchMapping("/{id}/status")
-    public BuffetOrderReadDTO updateStatus(
-            @PathVariable UUID id,
-            @RequestBody Map<String,String> body) {
-        OrderStatus status = OrderStatus.valueOf(body.get("status"));
-        return service.updateStatus(id, status);
+    /** Tracking (path style) — public, equivalent to the above */
+    @GetMapping("/{id}/track")
+    public BuffetOrderReadDTO trackByPath(
+            @PathVariable("id") UUID id,
+            @RequestParam String email) {
+        return service.track(id, email);
     }
 }
