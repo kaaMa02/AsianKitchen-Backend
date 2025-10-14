@@ -3,12 +3,18 @@ package ch.asiankitchen.dto;
 import ch.asiankitchen.model.*;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
-import lombok.*;
 
 import java.util.UUID;
 
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
 @Data
 @Builder
+@NoArgsConstructor
+@AllArgsConstructor
 public class OrderItemWriteDTO {
     @NotNull
     private UUID menuItemId;

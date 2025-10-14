@@ -207,13 +207,18 @@ public class CustomerOrderService {
     private record Discount(BigDecimal discountedItems, BigDecimal amount, BigDecimal percent) {}
 
     private Discount discountForMenu(BigDecimal itemsSubtotal) {
-        var active = discountService.resolveActive();
-        BigDecimal pct = Optional.ofNullable(active.percentMenu()).orElse(BigDecimal.ZERO);
+        var active = discountService.resolveActive(); // may be null
+        BigDecimal pct = (active != null && active.percentMenu() != null)
+                ? active.percentMenu()
+                : BigDecimal.ZERO;
+
         BigDecimal rate = pct.divide(new BigDecimal("100"), 6, RoundingMode.HALF_UP);
         BigDecimal discount = itemsSubtotal.multiply(rate).setScale(2, RoundingMode.HALF_UP);
         BigDecimal discounted = itemsSubtotal.subtract(discount).max(BigDecimal.ZERO);
         return new Discount(discounted, discount, pct);
     }
+
+
 
     private BigDecimal calcVat(OrderType orderType, BigDecimal itemsAfterDiscount) {
         boolean taxable = (orderType == OrderType.TAKEAWAY || orderType == OrderType.DELIVERY);

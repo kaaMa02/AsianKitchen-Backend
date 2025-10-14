@@ -175,12 +175,14 @@ public class BuffetOrderService {
     }
 
     /* ---------- helpers ---------- */
-
     private record Discount(BigDecimal discountedItems, BigDecimal amount, BigDecimal percent) {}
 
     private Discount discountForBuffet(BigDecimal itemsSubtotal) {
-        var active = discountService.resolveActive();
-        BigDecimal pct = Optional.ofNullable(active.percentBuffet()).orElse(BigDecimal.ZERO);
+        var active = discountService.resolveActive(); // may be null
+        BigDecimal pct = (active != null && active.percentBuffet() != null)
+                ? active.percentBuffet()
+                : BigDecimal.ZERO;
+
         BigDecimal rate = pct.divide(new BigDecimal("100"), 6, RoundingMode.HALF_UP);
         BigDecimal discount = itemsSubtotal.multiply(rate).setScale(2, RoundingMode.HALF_UP);
         BigDecimal discounted = itemsSubtotal.subtract(discount).max(BigDecimal.ZERO);

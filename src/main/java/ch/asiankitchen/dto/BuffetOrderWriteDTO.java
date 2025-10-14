@@ -13,8 +13,13 @@ import lombok.Data;
 import java.util.List;
 import java.util.UUID;
 
+import lombok.AllArgsConstructor;
+import lombok.NoArgsConstructor;
+
 @Data
 @Builder
+@NoArgsConstructor
+@AllArgsConstructor
 public class BuffetOrderWriteDTO {
     private UUID userId;
 
