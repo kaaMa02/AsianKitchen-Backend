@@ -13,11 +13,14 @@ import org.springframework.web.util.UriUtils;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
-import java.util.*;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
 public class BuffetOrderService {
+
     private final BuffetOrderRepository repo;
     private final EmailService email;
     private final WebPushService webPushService;
@@ -47,11 +50,13 @@ public class BuffetOrderService {
         var order = dto.toEntity();
         order.setStatus(OrderStatus.NEW);
 
-        // Buffet total before discount = current entity total
+        // Base “items” subtotal for buffet before discount.
+        // (If entity already precomputed totalPrice, use it; else fall back to zero.)
         BigDecimal items = Optional.ofNullable(order.getTotalPrice())
-                .orElse(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
+                .orElse(BigDecimal.ZERO)
+                .setScale(2, RoundingMode.HALF_UP);
 
-        // Snapshot always (cash/TWINT/POS need it now)
+        // Snapshot totals (discount → VAT → delivery → grand) for BOTH card and non-card.
         var dr = discountForBuffet(items);
         BigDecimal vat = calcVat(order.getOrderType(), dr.discountedItems());
         BigDecimal delivery = calcDelivery(order.getOrderType(), dr.discountedItems());
@@ -71,17 +76,23 @@ public class BuffetOrderService {
 
         var saved = repo.save(order);
 
+        // Push (only for non-card, since card-paid pushes on Stripe webhook)
         if (saved.getPaymentMethod() != PaymentMethod.CARD) {
             try {
-                webPushService.broadcast("admin",
+                webPushService.broadcast(
+                        "admin",
                         """
                         {"title":"New Order (Buffet)","body":"%s order %s","url":"/admin/buffet-orders"}
-                        """.formatted(saved.getOrderType(), saved.getId()));
+                        """.formatted(saved.getOrderType(), saved.getId())
+                );
             } catch (Exception ignored) {}
         }
 
+        // Email confirmation for non-card immediately (card path emails on webhook)
         if (saved.getPaymentMethod() != PaymentMethod.CARD) {
-            sendCustomerConfirmationWithTrackLink(saved);
+            try {
+                sendCustomerConfirmationWithTrackLink(saved);
+            } catch (Exception ignored) {}
         }
 
         return BuffetOrderReadDTO.fromEntity(saved);
@@ -131,6 +142,7 @@ public class BuffetOrderService {
                 .orElseThrow(() -> new ResourceNotFoundException("BuffetOrder", id));
     }
 
+    /** Send when (a) non-card buffet order created, or (b) Stripe webhook success for card buffet. */
     public void sendCustomerConfirmationWithTrackLink(BuffetOrder order) {
         final String to = order.getCustomerInfo().getEmail();
         if (to == null || to.isBlank()) return;
