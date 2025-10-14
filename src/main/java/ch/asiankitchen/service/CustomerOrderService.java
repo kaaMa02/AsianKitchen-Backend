@@ -12,6 +12,7 @@ import org.springframework.web.util.UriUtils;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -56,7 +57,10 @@ public class CustomerOrderService {
             MenuItem mi = menuItemRepo.findById(id)
                     .orElseThrow(() -> new ResourceNotFoundException("MenuItem", id));
             if (!mi.isAvailable()) {
-                throw new IllegalArgumentException("Menu item not available: " + mi.getFoodItem().getName());
+                // Safe item name for error text
+                String itemName = Optional.ofNullable(mi.getFoodItem())
+                        .map(FoodItem::getName).orElse("Item " + mi.getId());
+                throw new IllegalArgumentException("Menu item not available: " + itemName);
             }
             oi.setMenuItem(mi);
             oi.setCustomerOrder(order);
@@ -68,7 +72,7 @@ public class CustomerOrderService {
                 .reduce(BigDecimal.ZERO, BigDecimal::add)
                 .setScale(2, RoundingMode.HALF_UP);
 
-        // Always compute + snapshot totals here
+        // Always compute + snapshot totals here (for cash/TWINT/POS there is no later Stripe step)
         var dr = discountForMenu(items);
         BigDecimal vat = calcVat(order.getOrderType(), dr.discountedItems());
         BigDecimal delivery = calcDelivery(order.getOrderType(), dr.discountedItems());
@@ -88,7 +92,7 @@ public class CustomerOrderService {
 
         var saved = repo.save(order);
 
-        // Push (non-card)
+        // Push (only for non-card because paid card orders push on webhook)
         if (saved.getPaymentMethod() != PaymentMethod.CARD) {
             try {
                 webPushService.broadcast("admin",
@@ -98,9 +102,11 @@ public class CustomerOrderService {
             } catch (Exception ignored) {}
         }
 
-        // Email for non-card here (card handled by webhook)
+        // Email confirmation for non-card right away (card path emails on webhook)
         if (saved.getPaymentMethod() != PaymentMethod.CARD) {
-            sendCustomerConfirmationWithTrackLink(saved);
+            try {
+                sendCustomerConfirmationWithTrackLink(saved);
+            } catch (Exception ignored) {}
         }
 
         return CustomerOrderReadDTO.fromEntity(saved);
@@ -150,13 +156,13 @@ public class CustomerOrderService {
                 .stream().map(CustomerOrderReadDTO::fromEntity).toList();
     }
 
-    /** Send on non-card create or card webhook success. */
+    /** Send when (a) non-card order created, or (b) Stripe webhook success for card. */
     public void sendCustomerConfirmationWithTrackLink(CustomerOrder order) {
         final String to = order.getCustomerInfo().getEmail();
         if (to == null || to.isBlank()) return;
 
         String trackUrl = "https://asian-kitchen.online/track?orderId=%s&email=%s"
-                .formatted(order.getId(), UriUtils.encode(to, java.nio.charset.StandardCharsets.UTF_8));
+                .formatted(order.getId(), UriUtils.encode(to, StandardCharsets.UTF_8));
 
         String subject = "Your order at Asian Kitchen";
         String body = """
