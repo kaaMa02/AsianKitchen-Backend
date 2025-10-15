@@ -55,7 +55,6 @@ public class CustomerOrderService {
             throw new IllegalArgumentException("Order must contain at least one item.");
         }
 
-        // Attach real menu items & validate availability / quantity
         order.getOrderItems().forEach(oi -> {
             if (oi.getQuantity() <= 0) {
                 throw new IllegalArgumentException("Each item must have a quantity of at least 1.");
@@ -74,7 +73,6 @@ public class CustomerOrderService {
             oi.setCustomerOrder(order);
         });
 
-        // Compute total from DB prices (pre-discount "items") — null-safe
         BigDecimal items = order.getOrderItems().stream()
                 .map(oi -> {
                     BigDecimal unit = Optional.ofNullable(oi.getMenuItem().getPrice()).orElse(BigDecimal.ZERO);
@@ -88,7 +86,6 @@ public class CustomerOrderService {
                 .reduce(BigDecimal.ZERO, BigDecimal::add)
                 .setScale(2, RoundingMode.HALF_UP);
 
-        // Discount → VAT → Delivery → Grand
         var dr = discountForMenu(items);
         BigDecimal vat = calcVat(order.getOrderType(), dr.discountedItems());
         BigDecimal delivery = calcDelivery(order.getOrderType(), dr.discountedItems());
@@ -108,19 +105,17 @@ public class CustomerOrderService {
 
         var saved = repo.save(order);
 
-        // Push (only for non-card; paid card orders are pushed on webhook)
         if (saved.getPaymentMethod() != PaymentMethod.CARD) {
             try {
                 webPushService.broadcast("admin",
                         """
                         {"title":"New Order (Menu)","body":"%s order %s","url":"/admin/orders"}
                         """.formatted(saved.getOrderType(), saved.getId()));
-            } catch (Exception ignored) {}
+            } catch (Throwable ignored) {}
         }
 
-        // Email confirmation for non-card right away (card emails on webhook)
         if (saved.getPaymentMethod() != PaymentMethod.CARD) {
-            try { sendCustomerConfirmationWithTrackLink(saved); } catch (Exception ignored) {}
+            try { sendCustomerConfirmationWithTrackLink(saved); } catch (Throwable ignored) {}
         }
 
         return CustomerOrderReadDTO.fromEntity(saved);
@@ -165,7 +160,9 @@ public class CustomerOrderService {
 
     @Transactional(readOnly = true)
     public List<CustomerOrderReadDTO> listAllVisibleForAdmin() {
-        var statuses = List.of(PaymentStatus.SUCCEEDED, PaymentStatus.NOT_REQUIRED);
+        var statuses = List.of(
+                PaymentStatus.SUCCEEDED,
+                PaymentStatus.NOT_REQUIRED);
         return repo.findAdminVisibleWithItems(statuses)
                 .stream().map(CustomerOrderReadDTO::fromEntity).toList();
     }

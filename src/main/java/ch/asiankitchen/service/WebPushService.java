@@ -11,7 +11,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.security.GeneralSecurityException;
 import java.util.List;
 
 @Service
@@ -46,43 +45,51 @@ public class WebPushService {
                 .build());
     }
 
-    /** Send JSON payload to all subs matching tag ("admin"). Removes dead subs automatically. */
+    /** Never throw – push must not block order creation. */
     @Transactional
     public void broadcast(String tag, String jsonPayload) {
-        final List<WebPushSubscription> targets =
-                (tag == null || tag.isBlank()) ? repo.findAll() : repo.findByTag(tag);
+        try {
+            final List<WebPushSubscription> targets =
+                    (tag == null || tag.isBlank()) ? repo.findAll() : repo.findByTag(tag);
+            if (targets.isEmpty()) return;
 
-        if (targets.isEmpty()) return;
-
-        final PushService svc = build();
-
-        for (WebPushSubscription s : targets) {
-            try {
-                // web-push 5.1.1 prefers using Subscription + Keys (base64url strings)
-                Subscription sub = new Subscription(
-                        s.getEndpoint(),
-                        new Subscription.Keys(s.getP256dh(), s.getAuth())
-                );
-
-                Notification n = new Notification(sub, jsonPayload);
-                var resp = svc.send(n);
-                int code = resp.getStatusLine().getStatusCode();
-                if (code == 404 || code == 410) {
-                    repo.delete(s);
-                    log.info("Removed dead web push subscription: {}", s.getEndpoint());
-                }
-            } catch (Exception e) {
-                log.warn("Push failed for {}: {}", s.getEndpoint(), e.toString());
+            final PushService svc = buildOrNull();
+            if (svc == null) {
+                log.warn("WebPush disabled or misconfigured; skipping broadcast");
+                return;
             }
+
+            for (WebPushSubscription s : targets) {
+                try {
+                    Subscription sub = new Subscription(
+                            s.getEndpoint(),
+                            new Subscription.Keys(s.getP256dh(), s.getAuth())
+                    );
+                    Notification n = new Notification(sub, jsonPayload);
+                    var resp = svc.send(n);
+                    int code = resp.getStatusLine().getStatusCode();
+                    if (code == 404 || code == 410) {
+                        repo.delete(s);
+                        log.info("Removed dead web push subscription: {}", s.getEndpoint());
+                    }
+                } catch (Throwable e) {
+                    log.warn("Push failed for {}: {}", s.getEndpoint(), e.toString());
+                }
+            }
+        } catch (Throwable e) {
+            log.warn("WebPush broadcast failed early: {}", e.toString());
         }
     }
 
-    private PushService build() {
+    private PushService buildOrNull() {
         try {
-            // This ctor throws GeneralSecurityException (not JoseException)
+            if (publicKey == null || publicKey.isBlank() || privateKey == null || privateKey.isBlank()) {
+                return null;
+            }
             return new PushService(publicKey, privateKey, subject);
-        } catch (GeneralSecurityException e) {
-            throw new IllegalStateException("Invalid VAPID keys/config", e);
+        } catch (Throwable e) {
+            log.warn("Invalid VAPID config: {}", e.toString());
+            return null;
         }
     }
 }

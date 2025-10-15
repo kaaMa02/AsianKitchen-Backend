@@ -1,8 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
 		 xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-		 xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
-                             https://maven.apache.org/xsd/maven-4.0.0.xsd">
+		 xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
 
 	<modelVersion>4.0.0</modelVersion>
 
@@ -31,7 +30,6 @@
 		<logback.version>1.5.19</logback.version>
 	</properties>
 
-	<!-- Pin/override transitive versions to safe ones, regardless of who brings them in -->
 	<dependencyManagement>
 		<dependencies>
 			<dependency>
@@ -58,7 +56,7 @@
 	</dependencyManagement>
 
 	<dependencies>
-		<!-- Spring Boot Starters -->
+		<!-- Spring Boot -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-web</artifactId>
@@ -76,7 +74,7 @@
 			<artifactId>spring-boot-starter-actuator</artifactId>
 		</dependency>
 
-		<!-- Flyway migration -->
+		<!-- Flyway -->
 		<dependency>
 			<groupId>org.flywaydb</groupId>
 			<artifactId>flyway-database-postgresql</artifactId>
@@ -87,7 +85,7 @@
 			<version>${flyway.version}</version>
 		</dependency>
 
-		<!-- Postgres driver -->
+		<!-- Postgres -->
 		<dependency>
 			<groupId>org.postgresql</groupId>
 			<artifactId>postgresql</artifactId>
@@ -121,7 +119,7 @@
 			<scope>provided</scope>
 		</dependency>
 
-		<!-- Devtools & Testing -->
+		<!-- Devtools & Tests -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-devtools</artifactId>
@@ -151,7 +149,7 @@
 			<artifactId>spring-boot-starter-validation</artifactId>
 		</dependency>
 
-		<!-- (Optional) Thymeleaf for emails -->
+		<!-- Thymeleaf (emails) -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-thymeleaf</artifactId>
@@ -164,7 +162,7 @@
 			<version>24.0.0</version>
 		</dependency>
 
-		<!-- Web Push (exclude old transitive jose4j/AHC) -->
+		<!-- Web Push -->
 		<dependency>
 			<groupId>nl.martijndwars</groupId>
 			<artifactId>web-push</artifactId>
@@ -181,15 +179,14 @@
 			</exclusions>
 		</dependency>
 
-		<!-- Bring safe jose4j explicitly -->
+		<!-- Safe jose4j -->
 		<dependency>
 			<groupId>org.bitbucket.b_c</groupId>
 			<artifactId>jose4j</artifactId>
 			<version>${jose4j.version}</version>
 		</dependency>
 
-		<!-- Only needed if your tree still includes AHC; otherwise you can remove this.
-             Keeping it optional ensures it won’t bloat your runtime. -->
+		<!-- (optional) AHC -->
 		<dependency>
 			<groupId>org.asynchttpclient</groupId>
 			<artifactId>async-http-client</artifactId>
@@ -197,7 +194,7 @@
 			<optional>true</optional>
 		</dependency>
 
-		<!-- Pin logback to safe version to satisfy SCA -->
+		<!-- PIN logback -->
 		<dependency>
 			<groupId>ch.qos.logback</groupId>
 			<artifactId>logback-core</artifactId>
@@ -208,11 +205,22 @@
 			<artifactId>logback-classic</artifactId>
 			<version>${logback.version}</version>
 		</dependency>
+
+		<!-- REQUIRED for web-push (fixes NoClassDefFoundError: ECParameterSpec) -->
+		<dependency>
+			<groupId>org.bouncycastle</groupId>
+			<artifactId>bcprov-jdk18on</artifactId>
+			<version>1.78.1</version>
+		</dependency>
+		<dependency>
+			<groupId>org.bouncycastle</groupId>
+			<artifactId>bcpkix-jdk18on</artifactId>
+			<version>1.78.1</version>
+		</dependency>
 	</dependencies>
 
 	<build>
 		<plugins>
-			<!-- compile to Java 17 -->
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-compiler-plugin</artifactId>
@@ -229,7 +237,6 @@
 				</configuration>
 			</plugin>
 
-			<!-- spring-boot:repackage -->
 			<plugin>
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>
@@ -244,5 +251,4 @@
 			</plugin>
 		</plugins>
 	</build>
-
 </project>

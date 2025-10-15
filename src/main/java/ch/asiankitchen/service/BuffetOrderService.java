@@ -50,13 +50,10 @@ public class BuffetOrderService {
         var order = dto.toEntity();
         order.setStatus(OrderStatus.NEW);
 
-        // Base “items” subtotal for buffet before discount.
-        // (If entity already precomputed totalPrice, use it; else fall back to zero.)
         BigDecimal items = Optional.ofNullable(order.getTotalPrice())
                 .orElse(BigDecimal.ZERO)
                 .setScale(2, RoundingMode.HALF_UP);
 
-        // Snapshot totals (discount → VAT → delivery → grand) for BOTH card and non-card.
         var dr = discountForBuffet(items);
         BigDecimal vat = calcVat(order.getOrderType(), dr.discountedItems());
         BigDecimal delivery = calcDelivery(order.getOrderType(), dr.discountedItems());
@@ -76,7 +73,6 @@ public class BuffetOrderService {
 
         var saved = repo.save(order);
 
-        // Push (only for non-card, since card-paid pushes on Stripe webhook)
         if (saved.getPaymentMethod() != PaymentMethod.CARD) {
             try {
                 webPushService.broadcast(
@@ -85,14 +81,11 @@ public class BuffetOrderService {
                         {"title":"New Order (Buffet)","body":"%s order %s","url":"/admin/buffet-orders"}
                         """.formatted(saved.getOrderType(), saved.getId())
                 );
-            } catch (Exception ignored) {}
+            } catch (Throwable ignored) {}
         }
 
-        // Email confirmation for non-card immediately (card path emails on webhook)
         if (saved.getPaymentMethod() != PaymentMethod.CARD) {
-            try {
-                sendCustomerConfirmationWithTrackLink(saved);
-            } catch (Exception ignored) {}
+            try { sendCustomerConfirmationWithTrackLink(saved); } catch (Throwable ignored) {}
         }
 
         return BuffetOrderReadDTO.fromEntity(saved);
