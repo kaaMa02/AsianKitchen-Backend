@@ -1,3 +1,4 @@
+// ch/asiankitchen/config/ApiExceptionHandler.java
 package ch.asiankitchen.config;
 
 import ch.asiankitchen.exception.ResourceNotFoundException;
@@ -47,11 +48,15 @@ public class ApiExceptionHandler {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("message", ex.getMessage()));
     }
 
-    /** final catch-all — crucial: LOG the stacktrace so we can see the exact line on server */
+    // TEMPORARY: expose type+message so we can see what fails from Postman
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String,String>> handleOther(Exception ex) {
         log.error("Unhandled server error", ex);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(Map.of("message", "Unexpected error"));
+                .body(Map.of(
+                        "message", "Unexpected error",
+                        "errorType", ex.getClass().getName(),
+                        "error", String.valueOf(ex.getMessage())
+                ));
     }
 }
