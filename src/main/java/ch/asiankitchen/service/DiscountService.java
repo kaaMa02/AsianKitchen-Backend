@@ -18,19 +18,22 @@ public class DiscountService {
 
     private final DiscountConfigRepository repo;
 
-    private static final UUID SINGLETON_ID = UUID.fromString("11111111-2222-3333-4444-555555555555");
+    private static final UUID SINGLETON_ID =
+            UUID.fromString("11111111-2222-3333-4444-555555555555");
 
-    @Transactional(readOnly = true)
+    /** Create default row if missing (normal read/write transaction). */
+    @Transactional
     public DiscountConfigReadDTO getCurrent() {
-        DiscountConfig c = repo.findById(SINGLETON_ID).orElseGet(() -> {
-            DiscountConfig d = DiscountConfig.builder()
+        DiscountConfig c = repo.findById(SINGLETON_ID).orElse(null);
+        if (c == null) {
+            c = DiscountConfig.builder()
                     .id(SINGLETON_ID)
                     .enabled(false)
                     .percentMenu(BigDecimal.ZERO)
                     .percentBuffet(BigDecimal.ZERO)
                     .build();
-            return repo.save(d);
-        });
+            c = repo.save(c);
+        }
         return toReadDTO(c);
     }
 
@@ -47,6 +50,7 @@ public class DiscountService {
 
     @Transactional(readOnly = true)
     public ActiveDiscount resolveActive() {
+        // safe because getCurrent() guarantees the row exists now
         DiscountConfigReadDTO c = getCurrent();
         if (!c.isEnabled()) return ActiveDiscount.none();
 
@@ -54,10 +58,7 @@ public class DiscountService {
         if (c.getStartsAt() != null && now.isBefore(c.getStartsAt())) return ActiveDiscount.none();
         if (c.getEndsAt() != null && now.isAfter(c.getEndsAt())) return ActiveDiscount.none();
 
-        return new ActiveDiscount(
-                c.getPercentMenu(),
-                c.getPercentBuffet()
-        );
+        return new ActiveDiscount(c.getPercentMenu(), c.getPercentBuffet());
     }
 
     public record ActiveDiscount(BigDecimal percentMenu, BigDecimal percentBuffet) {
@@ -77,7 +78,7 @@ public class DiscountService {
                 .build();
     }
 
-    private static java.math.BigDecimal safe(java.math.BigDecimal v) {
-        return v == null ? java.math.BigDecimal.ZERO : v;
+    private static BigDecimal safe(BigDecimal v) {
+        return v == null ? BigDecimal.ZERO : v;
     }
 }
