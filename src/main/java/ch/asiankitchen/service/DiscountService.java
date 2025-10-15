@@ -21,25 +21,27 @@ public class DiscountService {
     private static final UUID SINGLETON_ID =
             UUID.fromString("11111111-2222-3333-4444-555555555555");
 
-    /** Create default row if missing (normal read/write transaction). */
+    /** Get the row; if missing, create it (NOT read-only). */
     @Transactional
     public DiscountConfigReadDTO getCurrent() {
-        DiscountConfig c = repo.findById(SINGLETON_ID).orElse(null);
-        if (c == null) {
-            c = DiscountConfig.builder()
+        DiscountConfig c = repo.findById(SINGLETON_ID).orElseGet(() -> {
+            DiscountConfig d = DiscountConfig.builder()
                     .id(SINGLETON_ID)
                     .enabled(false)
                     .percentMenu(BigDecimal.ZERO)
                     .percentBuffet(BigDecimal.ZERO)
+                    .startsAt(null)
+                    .endsAt(null)
                     .build();
-            c = repo.save(c);
-        }
+            return repo.save(d);
+        });
         return toReadDTO(c);
     }
 
     @Transactional
     public DiscountConfigReadDTO update(DiscountConfigWriteDTO dto) {
-        DiscountConfig c = repo.findById(SINGLETON_ID).orElseThrow();
+        DiscountConfig c = repo.findById(SINGLETON_ID)
+                .orElseThrow(); // should exist after getCurrent() has run once
         c.setEnabled(dto.isEnabled());
         c.setPercentMenu(safe(dto.getPercentMenu()));
         c.setPercentBuffet(safe(dto.getPercentBuffet()));
@@ -48,21 +50,27 @@ public class DiscountService {
         return toReadDTO(repo.save(c));
     }
 
+    /** Resolve active discount without writing. */
     @Transactional(readOnly = true)
     public ActiveDiscount resolveActive() {
-        // safe because getCurrent() guarantees the row exists now
-        DiscountConfigReadDTO c = getCurrent();
-        if (!c.isEnabled()) return ActiveDiscount.none();
+        // read only: DO NOT create row here
+        DiscountConfig c = repo.findById(SINGLETON_ID).orElse(null);
+        if (c == null || !c.isEnabled()) return ActiveDiscount.none();
 
         OffsetDateTime now = OffsetDateTime.now();
         if (c.getStartsAt() != null && now.isBefore(c.getStartsAt())) return ActiveDiscount.none();
         if (c.getEndsAt() != null && now.isAfter(c.getEndsAt())) return ActiveDiscount.none();
 
-        return new ActiveDiscount(c.getPercentMenu(), c.getPercentBuffet());
+        return new ActiveDiscount(
+                safe(c.getPercentMenu()),
+                safe(c.getPercentBuffet())
+        );
     }
 
     public record ActiveDiscount(BigDecimal percentMenu, BigDecimal percentBuffet) {
-        public static ActiveDiscount none() { return new ActiveDiscount(BigDecimal.ZERO, BigDecimal.ZERO); }
+        public static ActiveDiscount none() {
+            return new ActiveDiscount(BigDecimal.ZERO, BigDecimal.ZERO);
+        }
         public boolean hasMenu() { return percentMenu != null && percentMenu.compareTo(BigDecimal.ZERO) > 0; }
         public boolean hasBuffet() { return percentBuffet != null && percentBuffet.compareTo(BigDecimal.ZERO) > 0; }
     }
