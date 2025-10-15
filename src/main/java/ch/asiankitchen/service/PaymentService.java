@@ -15,7 +15,6 @@ import com.stripe.param.PaymentIntentCreateParams;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -34,8 +33,6 @@ public class PaymentService {
 
     // ── Services (used for discount resolution and sending email after webhook success)
     private final DiscountService discountService;
-    private final CustomerOrderService customerOrderService;
-    private final BuffetOrderService buffetOrderService;
     private final WebPushService webPushService;
 
     // ── Config
@@ -275,8 +272,8 @@ public class PaymentService {
     // DISCOUNT HELPERS
     // ───────────────────────────────────────────────────────────
     private DiscountResult applyDiscountMenu(BigDecimal itemsSubtotal) {
-        var active = discountService.resolveActive(); // percents as BigDecimal; default 0
-        BigDecimal pct = active.percentMenu() == null ? BigDecimal.ZERO : active.percentMenu();
+        var active = discountService.resolveActive();
+        BigDecimal pct = active.percentMenu();
         BigDecimal rate = pct.divide(new BigDecimal("100"), 6, RoundingMode.HALF_UP);
         BigDecimal discount = itemsSubtotal.multiply(rate).setScale(2, RoundingMode.HALF_UP);
         BigDecimal discounted = itemsSubtotal.subtract(discount).max(BigDecimal.ZERO);
@@ -285,7 +282,7 @@ public class PaymentService {
 
     private DiscountResult applyDiscountBuffet(BigDecimal itemsSubtotal) {
         var active = discountService.resolveActive();
-        BigDecimal pct = active.percentBuffet() == null ? BigDecimal.ZERO : active.percentBuffet();
+        BigDecimal pct = active.percentBuffet();
         BigDecimal rate = pct.divide(new BigDecimal("100"), 6, RoundingMode.HALF_UP);
         BigDecimal discount = itemsSubtotal.multiply(rate).setScale(2, RoundingMode.HALF_UP);
         BigDecimal discounted = itemsSubtotal.subtract(discount).max(BigDecimal.ZERO);

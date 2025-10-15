@@ -178,16 +178,14 @@ public class BuffetOrderService {
     private record Discount(BigDecimal discountedItems, BigDecimal amount, BigDecimal percent) {}
 
     private Discount discountForBuffet(BigDecimal itemsSubtotal) {
-        var active = discountService.resolveActive(); // may be null
-        BigDecimal pct = (active != null && active.percentBuffet() != null)
-                ? active.percentBuffet()
-                : BigDecimal.ZERO;
-
+        var active = discountService.resolveActive(); // never null
+        BigDecimal pct = active.percentBuffet();      // never null
         BigDecimal rate = pct.divide(new BigDecimal("100"), 6, RoundingMode.HALF_UP);
         BigDecimal discount = itemsSubtotal.multiply(rate).setScale(2, RoundingMode.HALF_UP);
         BigDecimal discounted = itemsSubtotal.subtract(discount).max(BigDecimal.ZERO);
         return new Discount(discounted, discount, pct);
     }
+
 
     private BigDecimal calcVat(OrderType orderType, BigDecimal itemsAfterDiscount) {
         boolean taxable = (orderType == OrderType.TAKEAWAY || orderType == OrderType.DELIVERY);
