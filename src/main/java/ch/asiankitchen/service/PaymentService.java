@@ -4,11 +4,14 @@ import ch.asiankitchen.exception.ResourceNotFoundException;
 import ch.asiankitchen.model.*;
 import ch.asiankitchen.repository.BuffetOrderRepository;
 import ch.asiankitchen.repository.CustomerOrderRepository;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.stripe.Stripe;
 import com.stripe.exception.SignatureVerificationException;
 import com.stripe.exception.StripeException;
 import com.stripe.model.Charge;
 import com.stripe.model.Event;
+import com.stripe.model.EventDataObjectDeserializer;
 import com.stripe.model.PaymentIntent;
 import com.stripe.net.Webhook;
 import com.stripe.param.PaymentIntentCreateParams;
@@ -31,11 +34,10 @@ public class PaymentService {
     private final CustomerOrderRepository customerOrderRepo;
     private final BuffetOrderRepository buffetOrderRepo;
 
-    // ── Domain services
+    // ── Services
     private final DiscountService discountService;
     private final WebPushService webPushService;
-
-    // Add these so we can send the customer confirmation on webhook success for card
+    // used to send customer email after webhook success
     private final CustomerOrderService customerOrderService;
     private final BuffetOrderService buffetOrderService;
 
@@ -180,7 +182,7 @@ public class PaymentService {
     }
 
     // ───────────────────────────────────────────────────────────
-    // WEBHOOK HANDLER (robust with metadata fallback + email on success)
+    // WEBHOOK HANDLER (resilient to API version changes)
     // ───────────────────────────────────────────────────────────
     @Transactional
     public void handleWebhook(String payload, String signatureHeader, String webhookSecret)
@@ -189,162 +191,218 @@ public class PaymentService {
         Event event = Webhook.constructEvent(payload, signatureHeader, webhookSecret);
         System.out.println("[WEBHOOK] type=" + event.getType());
 
-        switch (event.getType()) {
-            case "payment_intent.succeeded" -> {
-                PaymentIntent pi = (PaymentIntent) event.getDataObjectDeserializer().getObject().orElse(null);
-                if (pi != null) {
-                    System.out.println("[WEBHOOK] PI success id=" + pi.getId());
-                    updateFromStripeObjects(pi, null, PaymentStatus.SUCCEEDED, null);
+        try {
+            switch (event.getType()) {
+                case "payment_intent.succeeded" -> {
+                    PaymentIntent pi = deserializePaymentIntent(event.getDataObjectDeserializer());
+                    if (pi != null) {
+                        System.out.println("[WEBHOOK] PI success id=" + pi.getId());
+                        updateByPaymentIntent(pi.getId(), PaymentStatus.SUCCEEDED, null);
+                    } else {
+                        System.out.println("[WEBHOOK] PI deserialization FAILED");
+                    }
                 }
-            }
-            case "payment_intent.payment_failed" -> {
-                PaymentIntent pi = (PaymentIntent) event.getDataObjectDeserializer().getObject().orElse(null);
-                if (pi != null) {
-                    System.out.println("[WEBHOOK] PI failed id=" + pi.getId());
-                    updateFromStripeObjects(pi, null, PaymentStatus.FAILED, null);
+                case "payment_intent.payment_failed" -> {
+                    PaymentIntent pi = deserializePaymentIntent(event.getDataObjectDeserializer());
+                    if (pi != null) {
+                        System.out.println("[WEBHOOK] PI failed id=" + pi.getId());
+                        updateByPaymentIntent(pi.getId(), PaymentStatus.FAILED, null);
+                    } else {
+                        System.out.println("[WEBHOOK] PI deserialization FAILED");
+                    }
                 }
-            }
-            case "charge.succeeded" -> {
-                Charge ch = (Charge) event.getDataObjectDeserializer().getObject().orElse(null);
-                if (ch != null) {
-                    System.out.println("[WEBHOOK] Charge success pi=" + ch.getPaymentIntent());
-                    updateFromStripeObjects(null, ch, PaymentStatus.SUCCEEDED, resolveMethod(ch));
+                case "charge.succeeded" -> {
+                    Charge ch = deserializeCharge(event.getDataObjectDeserializer());
+                    if (ch != null && ch.getPaymentIntent() != null) {
+                        System.out.println("[WEBHOOK] Charge success pi=" + ch.getPaymentIntent());
+                        updateByPaymentIntent(ch.getPaymentIntent(), PaymentStatus.SUCCEEDED, resolveMethod(ch));
+                    } else {
+                        System.out.println("[WEBHOOK] Charge deserialization FAILED or missing PI");
+                    }
                 }
-            }
-            case "charge.failed" -> {
-                Charge ch = (Charge) event.getDataObjectDeserializer().getObject().orElse(null);
-                if (ch != null) {
-                    System.out.println("[WEBHOOK] Charge failed pi=" + ch.getPaymentIntent());
-                    updateFromStripeObjects(null, ch, PaymentStatus.FAILED, resolveMethod(ch));
+                case "charge.failed" -> {
+                    Charge ch = deserializeCharge(event.getDataObjectDeserializer());
+                    if (ch != null && ch.getPaymentIntent() != null) {
+                        System.out.println("[WEBHOOK] Charge failed pi=" + ch.getPaymentIntent());
+                        updateByPaymentIntent(ch.getPaymentIntent(), PaymentStatus.FAILED, resolveMethod(ch));
+                    } else {
+                        System.out.println("[WEBHOOK] Charge deserialization FAILED or missing PI");
+                    }
                 }
+                default -> { /* ignore others */ }
             }
-            default -> { /* ignore others */ }
+        } catch (Exception e) {
+            // log but do not 5xx, to avoid Stripe retries if we already handled it
+            System.out.println("[WEBHOOK] Handler exception: " + e.getMessage());
         }
     }
 
-    private void updateFromStripeObjects(PaymentIntent pi,
-                                         Charge ch,
-                                         PaymentStatus status,
-                                         PaymentMethod maybeMethod) {
-        // If we only received a Charge, try to load the PI it references
-        if (pi == null && ch != null && ch.getPaymentIntent() != null) {
-            try { pi = PaymentIntent.retrieve(ch.getPaymentIntent()); } catch (Exception ignored) {}
-        }
+    /** Try SDK deserialization; if it fails, parse raw JSON to get id and retrieve from Stripe. */
+    private PaymentIntent deserializePaymentIntent(EventDataObjectDeserializer d) {
+        return d.getObject()
+                .filter(PaymentIntent.class::isInstance)
+                .map(PaymentIntent.class::cast)
+                .orElseGet(() -> {
+                    try {
+                        String raw = d.getRawJson();
+                        if (raw == null) return null;
+                        JsonObject jo = JsonParser.parseString(raw).getAsJsonObject();
+                        String id = jo.has("id") ? jo.get("id").getAsString() : null;
+                        return (id != null) ? PaymentIntent.retrieve(id) : null;
+                    } catch (Exception ignored) {
+                        return null;
+                    }
+                });
+    }
 
-        String piId = (pi != null) ? pi.getId() : (ch != null ? ch.getPaymentIntent() : null);
-        Map<String, String> md = (pi != null && pi.getMetadata() != null) ? pi.getMetadata() : Collections.emptyMap();
+    private Charge deserializeCharge(EventDataObjectDeserializer d) {
+        return d.getObject()
+                .filter(Charge.class::isInstance)
+                .map(Charge.class::cast)
+                .orElseGet(() -> {
+                    try {
+                        String raw = d.getRawJson();
+                        if (raw == null) return null;
+                        JsonObject jo = JsonParser.parseString(raw).getAsJsonObject();
+                        String id = jo.has("id") ? jo.get("id").getAsString() : null;
+                        return (id != null) ? Charge.retrieve(id) : null;
+                    } catch (Exception ignored) {
+                        return null;
+                    }
+                });
+    }
+
+    // ───────────────────────────────────────────────────────────
+    // PERSISTENCE UPDATE (with metadata fallback + email + push)
+    // ───────────────────────────────────────────────────────────
+    private void updateByPaymentIntent(String paymentIntentId,
+                                       PaymentStatus status,
+                                       PaymentMethod maybeMethod) {
+        System.out.println("[WEBHOOK] Updating by PI=" + paymentIntentId + " -> " + status);
 
         boolean touched = false;
 
-        // 1) Primary: match by payment_intent_id stored on order
-        if (piId != null) {
-            var co = customerOrderRepo.findByPaymentIntentId(piId);
-            if (co.isPresent()) {
-                touched = true;
-                applyUpdateToCustomer(co.get(), status, maybeMethod, true);
+        var co = customerOrderRepo.findByPaymentIntentId(paymentIntentId);
+        if (co.isPresent()) {
+            touched = true;
+            var o = co.get();
+            System.out.println("[WEBHOOK] Matched CUSTOMER order " + o.getId());
+            o.setPaymentStatus(status);
+            if (maybeMethod != null) o.setPaymentMethod(maybeMethod);
+            if (status == PaymentStatus.SUCCEEDED && o.getStatus() == OrderStatus.NEW) {
+                o.setStatus(OrderStatus.CONFIRMED);
             }
-            var bo = buffetOrderRepo.findByPaymentIntentId(piId);
-            if (bo.isPresent()) {
-                touched = true;
-                applyUpdateToBuffet(bo.get(), status, maybeMethod, true);
-            }
-        }
+            customerOrderRepo.save(o);
 
-        // 2) Fallback: use your own metadata.orderId + metadata.type (customer|buffet)
-        if (!touched && md.containsKey("orderId")) {
-            try {
-                UUID orderId = UUID.fromString(md.get("orderId"));
-                String kind = md.getOrDefault("type", "customer");
-                if ("buffet".equalsIgnoreCase(kind)) {
-                    buffetOrderRepo.findById(orderId).ifPresent(o -> {
-                        // Backfill PI if missing/mismatched
-                        if (piId != null && (o.getPaymentIntentId() == null || o.getPaymentIntentId().isBlank())) {
-                            o.setPaymentIntentId(piId);
-                        }
-                        applyUpdateToBuffet(o, status, maybeMethod, false);
-                    });
-                    touched = true;
-                } else {
-                    customerOrderRepo.findById(orderId).ifPresent(o -> {
-                        if (piId != null && (o.getPaymentIntentId() == null || o.getPaymentIntentId().isBlank())) {
-                            o.setPaymentIntentId(piId);
-                        }
-                        applyUpdateToCustomer(o, status, maybeMethod, false);
-                    });
-                    touched = true;
-                }
-            } catch (IllegalArgumentException ignored) {
-                // Bad UUID string — ignore
-            }
-        }
-
-        if (!touched && piId != null) {
-            System.out.println("[WEBHOOK] No order matched by PI or metadata. PI=" + piId);
-        }
-    }
-
-    private void applyUpdateToCustomer(CustomerOrder o,
-                                       PaymentStatus status,
-                                       PaymentMethod maybeMethod,
-                                       boolean matchedByPi) {
-        PaymentStatus prev = o.getPaymentStatus();
-        o.setPaymentStatus(status);
-        if (maybeMethod != null) o.setPaymentMethod(maybeMethod);
-        if (status == PaymentStatus.SUCCEEDED && o.getStatus() == OrderStatus.NEW) {
-            o.setStatus(OrderStatus.CONFIRMED);
-        }
-        customerOrderRepo.save(o);
-
-        // On first transition to SUCCEEDED, send signals
-        if (status == PaymentStatus.SUCCEEDED && prev != PaymentStatus.SUCCEEDED) {
-            try {
-                webPushService.broadcast("admin",
-                        """
-                        {"title":"New Order (Menu)","body":"Paid %s order %s","url":"/admin/orders"}
-                        """.formatted(o.getOrderType(), o.getId()));
-            } catch (Exception ignored) {}
-
-            // Send customer email for card payments once webhook confirms success
-            try {
-                if (o.getPaymentMethod() == PaymentMethod.CARD) {
+            if (status == PaymentStatus.SUCCEEDED) {
+                try {
+                    webPushService.broadcast("admin",
+                            """
+                            {"title":"New Order (Menu)","body":"Paid %s order %s","url":"/admin/orders"}
+                            """.formatted(o.getOrderType(), o.getId()));
+                } catch (Exception ignored) {}
+                try {
                     customerOrderService.sendCustomerConfirmationWithTrackLink(o);
-                }
-            } catch (Exception ignored) {}
+                } catch (Exception ignored) {}
+            }
         }
 
-        System.out.println("[WEBHOOK] Updated CUSTOMER order " + o.getId()
-                + " via " + (matchedByPi ? "payment_intent_id" : "metadata"));
-    }
+        var bo = buffetOrderRepo.findByPaymentIntentId(paymentIntentId);
+        if (bo.isPresent()) {
+            touched = true;
+            var o = bo.get();
+            System.out.println("[WEBHOOK] Matched BUFFET order " + o.getId());
+            o.setPaymentStatus(status);
+            if (maybeMethod != null) o.setPaymentMethod(maybeMethod);
+            if (status == PaymentStatus.SUCCEEDED && o.getStatus() == OrderStatus.NEW) {
+                o.setStatus(OrderStatus.CONFIRMED);
+            }
+            buffetOrderRepo.save(o);
 
-    private void applyUpdateToBuffet(BuffetOrder o,
-                                     PaymentStatus status,
-                                     PaymentMethod maybeMethod,
-                                     boolean matchedByPi) {
-        PaymentStatus prev = o.getPaymentStatus();
-        o.setPaymentStatus(status);
-        if (maybeMethod != null) o.setPaymentMethod(maybeMethod);
-        if (status == PaymentStatus.SUCCEEDED && o.getStatus() == OrderStatus.NEW) {
-            o.setStatus(OrderStatus.CONFIRMED);
-        }
-        buffetOrderRepo.save(o);
-
-        if (status == PaymentStatus.SUCCEEDED && prev != PaymentStatus.SUCCEEDED) {
-            try {
-                webPushService.broadcast("admin",
-                        """
-                        {"title":"New Order (Buffet)","body":"Paid %s order %s","url":"/admin/buffet-orders"}
-                        """.formatted(o.getOrderType(), o.getId()));
-            } catch (Exception ignored) {}
-
-            try {
-                if (o.getPaymentMethod() == PaymentMethod.CARD) {
+            if (status == PaymentStatus.SUCCEEDED) {
+                try {
+                    webPushService.broadcast("admin",
+                            """
+                            {"title":"New Order (Buffet)","body":"Paid %s order %s","url":"/admin/buffet-orders"}
+                            """.formatted(o.getOrderType(), o.getId()));
+                } catch (Exception ignored) {}
+                try {
                     buffetOrderService.sendCustomerConfirmationWithTrackLink(o);
-                }
-            } catch (Exception ignored) {}
+                } catch (Exception ignored) {}
+            }
         }
 
-        System.out.println("[WEBHOOK] Updated BUFFET order " + o.getId()
-                + " via " + (matchedByPi ? "payment_intent_id" : "metadata"));
+        // If not matched by PI, try metadata fallback (orderId/type) and backfill payment_intent_id
+        if (!touched) {
+            try {
+                PaymentIntent pi = PaymentIntent.retrieve(paymentIntentId);
+                Map<String, String> md = pi.getMetadata();
+                String orderId = md != null ? md.get("orderId") : null;
+                String typ = md != null ? md.get("type") : null; // "customer" | "buffet"
+                System.out.println("[WEBHOOK] No order found by PI. Trying metadata: orderId=" + orderId + ", type=" + typ);
+
+                if (orderId != null && typ != null) {
+                    UUID oid = UUID.fromString(orderId);
+                    if ("customer".equalsIgnoreCase(typ)) {
+                        customerOrderRepo.findById(oid).ifPresent(o -> {
+                            System.out.println("[WEBHOOK] Fallback matched CUSTOMER order " + o.getId());
+                            if (o.getPaymentIntentId() == null || o.getPaymentIntentId().isBlank()) {
+                                o.setPaymentIntentId(paymentIntentId); // backfill
+                            }
+                            o.setPaymentStatus(status);
+                            if (maybeMethod != null) o.setPaymentMethod(maybeMethod);
+                            if (status == PaymentStatus.SUCCEEDED && o.getStatus() == OrderStatus.NEW) {
+                                o.setStatus(OrderStatus.CONFIRMED);
+                            }
+                            customerOrderRepo.save(o);
+
+                            if (status == PaymentStatus.SUCCEEDED) {
+                                try {
+                                    webPushService.broadcast("admin",
+                                            """
+                                            {"title":"New Order (Menu)","body":"Paid %s order %s","url":"/admin/orders"}
+                                            """.formatted(o.getOrderType(), o.getId()));
+                                } catch (Exception ignored) {}
+                                try {
+                                    customerOrderService.sendCustomerConfirmationWithTrackLink(o);
+                                } catch (Exception ignored) {}
+                            }
+                        });
+                    } else if ("buffet".equalsIgnoreCase(typ)) {
+                        buffetOrderRepo.findById(oid).ifPresent(o -> {
+                            System.out.println("[WEBHOOK] Fallback matched BUFFET order " + o.getId());
+                            if (o.getPaymentIntentId() == null || o.getPaymentIntentId().isBlank()) {
+                                o.setPaymentIntentId(paymentIntentId); // backfill
+                            }
+                            o.setPaymentStatus(status);
+                            if (maybeMethod != null) o.setPaymentMethod(maybeMethod);
+                            if (status == PaymentStatus.SUCCEEDED && o.getStatus() == OrderStatus.NEW) {
+                                o.setStatus(OrderStatus.CONFIRMED);
+                            }
+                            buffetOrderRepo.save(o);
+
+                            if (status == PaymentStatus.SUCCEEDED) {
+                                try {
+                                    webPushService.broadcast("admin",
+                                            """
+                                            {"title":"New Order (Buffet)","body":"Paid %s order %s","url":"/admin/buffet-orders"}
+                                            """.formatted(o.getOrderType(), o.getId()));
+                                } catch (Exception ignored) {}
+                                try {
+                                    buffetOrderService.sendCustomerConfirmationWithTrackLink(o);
+                                } catch (Exception ignored) {}
+                            }
+                        });
+                    }
+                }
+            } catch (Exception e) {
+                System.out.println("[WEBHOOK] Metadata fallback failed: " + e.getMessage());
+            }
+        }
+
+        if (!touched) {
+            System.out.println("[WEBHOOK] No order updated for PI=" + paymentIntentId);
+        }
     }
 
     private PaymentMethod resolveMethod(Charge ch) {
