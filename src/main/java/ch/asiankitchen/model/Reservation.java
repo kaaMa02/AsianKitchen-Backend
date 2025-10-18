@@ -40,6 +40,15 @@ public class Reservation {
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
+    @Column(name = "auto_cancel_at")
+    private LocalDateTime autoCancelAt;
+
+    @Column(name = "seen_at")
+    private LocalDateTime seenAt;
+
+    @Column(name = "escalated_at")
+    private LocalDateTime escalatedAt;
+
     @PrePersist
     public void prePersist() {
         this.createdAt = LocalDateTime.now();

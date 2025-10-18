@@ -41,6 +41,8 @@ public class PaymentService {
     private final CustomerOrderService customerOrderService;
     private final BuffetOrderService buffetOrderService;
 
+    private final OrderWorkflowService workflow;
+
     // ── Config
     @Value("${stripe.secret-key}")
     private String secretKey;
@@ -110,6 +112,9 @@ public class PaymentService {
         BigDecimal delivery = calcDeliveryFee(order.getOrderType(), dr.discountedItems());
         BigDecimal grand = dr.discountedItems().add(vat).add(delivery).setScale(2, RoundingMode.HALF_UP);
 
+        workflow.applyInitialTiming(order);
+        customerOrderRepo.save(order);
+
         // Snapshot on entity
         order.setItemsSubtotalBeforeDiscount(items);
         order.setDiscountPercent(dr.discountPercent());
@@ -159,6 +164,9 @@ public class PaymentService {
         BigDecimal vat = calcVat(order.getOrderType(), dr.discountedItems());
         BigDecimal delivery = calcDeliveryFee(order.getOrderType(), dr.discountedItems());
         BigDecimal grand = dr.discountedItems().add(vat).add(delivery).setScale(2, RoundingMode.HALF_UP);
+
+        workflow.applyInitialTiming(order);
+        buffetOrderRepo.save(order);
 
         // Snapshot on entity
         order.setItemsSubtotalBeforeDiscount(items);

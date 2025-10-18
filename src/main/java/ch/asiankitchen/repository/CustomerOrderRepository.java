@@ -15,7 +15,6 @@ public interface CustomerOrderRepository extends JpaRepository<CustomerOrder, UU
     List<CustomerOrder> findByUserId(UUID userId);
     Optional<CustomerOrder> findByPaymentIntentId(String paymentIntentId);
     long countByStatusAndPaymentStatusIn(OrderStatus status, List<PaymentStatus> paymentStatuses);
-
     @Query("""
       select distinct o
       from CustomerOrder o
@@ -26,4 +25,5 @@ public interface CustomerOrderRepository extends JpaRepository<CustomerOrder, UU
       order by o.createdAt desc
     """)
     List<CustomerOrder> findAdminVisibleWithItems(@Param("statuses") List<PaymentStatus> statuses);
+    List<CustomerOrder> findAllByStatus(OrderStatus status);
 }

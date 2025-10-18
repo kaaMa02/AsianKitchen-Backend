@@ -34,6 +34,8 @@ public class CustomerOrderReadDTO {
     private BigDecimal vatAmount;
     private BigDecimal deliveryFee;
 
+    private OrderTimingReadDTO timing;
+
     public static CustomerOrderReadDTO fromEntity(CustomerOrder o) {
         return CustomerOrderReadDTO.builder()
                 .id(o.getId())
@@ -57,6 +59,16 @@ public class CustomerOrderReadDTO {
                 .itemsSubtotalAfterDiscount(opt(o.getItemsSubtotalAfterDiscount()))
                 .vatAmount(opt(o.getVatAmount()))
                 .deliveryFee(opt(o.getDeliveryFee()))
+                .timing(OrderTimingReadDTO.builder()
+                        .asap(o.isAsap())
+                        .requestedAt(o.getRequestedAt())
+                        .minPrepMinutes(o.getMinPrepMinutes())
+                        .adminExtraMinutes(o.getAdminExtraMinutes())
+                        .committedReadyAt(o.getCommittedReadyAt())
+                        .autoCancelAt(o.getAutoCancelAt())
+                        .seenAt(o.getSeenAt())
+                        .escalatedAt(o.getEscalatedAt())
+                        .build())
                 .build();
     }
 

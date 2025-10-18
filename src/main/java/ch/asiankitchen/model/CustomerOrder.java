@@ -81,9 +81,37 @@ public class CustomerOrder {
     @Column(name = "delivery_fee", precision = 10, scale = 2)
     private BigDecimal deliveryFee;
 
+    // -------- NEW timing fields --------
+    @Column(name = "asap", nullable = false)
+    private boolean asap = true;
+
+    @Column(name = "requested_at")
+    private LocalDateTime requestedAt;
+
+    @Column(name = "min_prep_minutes", nullable = false)
+    private Integer minPrepMinutes = 45;
+
+    @Column(name = "admin_extra_minutes", nullable = false)
+    private Integer adminExtraMinutes = 0;
+
+    @Column(name = "committed_ready_at")
+    private LocalDateTime committedReadyAt;
+
+    @Column(name = "auto_cancel_at")
+    private LocalDateTime autoCancelAt;
+
+    @Column(name = "seen_at")
+    private LocalDateTime seenAt;
+
+    @Column(name = "escalated_at")
+    private LocalDateTime escalatedAt;
+
     @PrePersist
     protected void onCreate() {
-        this.createdAt = LocalDateTime.now();
+        if (createdAt == null) createdAt = LocalDateTime.now(); // stored as UTC by Hibernate config
         if (paymentStatus == null) paymentStatus = PaymentStatus.REQUIRES_PAYMENT_METHOD;
+        if (minPrepMinutes == null) minPrepMinutes = 45;
+        if (adminExtraMinutes == null) adminExtraMinutes = 0;
+        if (status == null) status = OrderStatus.NEW;
     }
 }

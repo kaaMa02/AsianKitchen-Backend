@@ -10,6 +10,7 @@ import jakarta.validation.constraints.NotNull;
 import lombok.Builder;
 import lombok.Data;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -37,11 +38,12 @@ public class BuffetOrderWriteDTO {
     @NotNull
     private PaymentMethod paymentMethod;
 
+    private Boolean asap;               // default true
+    private LocalDateTime scheduledAt;  // used if asap=false
+
     public BuffetOrder toEntity() {
         var order = new BuffetOrder();
-        if (userId != null) {
-            order.setUser(User.builder().id(userId).build());
-        }
+        if (userId != null) order.setUser(User.builder().id(userId).build());
         order.setCustomerInfo(CustomerInfoDTO.toEntity(customerInfo));
         order.setOrderType(orderType);
         order.setSpecialInstructions(specialInstructions);
@@ -51,6 +53,10 @@ public class BuffetOrderWriteDTO {
             return item;
         }).toList());
         order.setPaymentMethod(paymentMethod);
+
+        order.setAsap(asap == null || asap);
+        if (Boolean.FALSE.equals(asap)) order.setRequestedAt(scheduledAt);
         return order;
     }
+
 }

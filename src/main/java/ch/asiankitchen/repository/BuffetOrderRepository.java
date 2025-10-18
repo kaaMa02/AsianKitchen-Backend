@@ -15,7 +15,6 @@ public interface BuffetOrderRepository extends JpaRepository<BuffetOrder, UUID> 
     List<BuffetOrder> findByUserId(UUID userId);
     Optional<BuffetOrder> findByPaymentIntentId(String paymentIntentId);
     long countByStatusAndPaymentStatusIn(OrderStatus status, List<PaymentStatus> paymentStatuses);
-
     @Query("""
       select distinct o
       from BuffetOrder o
@@ -26,5 +25,6 @@ public interface BuffetOrderRepository extends JpaRepository<BuffetOrder, UUID> 
       order by o.createdAt desc
     """)
     List<BuffetOrder> findAdminVisibleWithItems(@Param("statuses") List<PaymentStatus> statuses);
+    List<BuffetOrder> findAllByStatus(OrderStatus status);
 
 }
