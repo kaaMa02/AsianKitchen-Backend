@@ -1,3 +1,4 @@
+// src/main/java/ch/asiankitchen/service/OrderWorkflowService.java
 package ch.asiankitchen.service;
 
 import ch.asiankitchen.model.*;
@@ -16,43 +17,43 @@ public class OrderWorkflowService {
 
     private final CustomerOrderRepository customerOrderRepo;
     private final BuffetOrderRepository buffetOrderRepo;
-    private final EmailService mailService;      // available for future use
+    private final EmailService mailService;      // reserved for future use if needed
     private final WebPushService webPushService;
 
     @Value("${app.order.min-prep-minutes:45}")
     private int defaultMinPrep;
 
-    @Value("${app.order.escalate-minutes:5}")
-    private int escalateMinutes;
+    @Value("${app.order.alert-seconds:60}")
+    private int alertSeconds;
 
-    @Value("${app.order.autocancel-minutes:15}")
-    private int autoCancelMinutes;
-
-    // ---- compute committed times on creation ----
+    // ---- compute committed times on creation (and the 60s alert window) ----
     public void applyInitialTiming(CustomerOrder o) {
         if (o.getMinPrepMinutes() == null || o.getMinPrepMinutes() <= 0) o.setMinPrepMinutes(defaultMinPrep);
         if (o.getAdminExtraMinutes() == null) o.setAdminExtraMinutes(0);
+
         if (o.isAsap()) {
             var ready = o.getCreatedAt().plusMinutes(o.getMinPrepMinutes() + o.getAdminExtraMinutes());
             o.setCommittedReadyAt(ready);
-            o.setAutoCancelAt(o.getCreatedAt().plusMinutes(autoCancelMinutes));
         } else {
-            o.setCommittedReadyAt(o.getRequestedAt());
-            o.setAutoCancelAt(null); // do not time-cancel scheduled orders
+            o.setCommittedReadyAt(o.getRequestedAt()); // admin must not change; UI enforces
         }
+
+        // NEW orders (ASAP or scheduled) must be confirmed/cancelled within alertSeconds
+        o.setAutoCancelAt(o.getCreatedAt().plusSeconds(alertSeconds));
     }
 
     public void applyInitialTiming(BuffetOrder o) {
         if (o.getMinPrepMinutes() == null || o.getMinPrepMinutes() <= 0) o.setMinPrepMinutes(defaultMinPrep);
         if (o.getAdminExtraMinutes() == null) o.setAdminExtraMinutes(0);
+
         if (o.isAsap()) {
             var ready = o.getCreatedAt().plusMinutes(o.getMinPrepMinutes() + o.getAdminExtraMinutes());
             o.setCommittedReadyAt(ready);
-            o.setAutoCancelAt(o.getCreatedAt().plusMinutes(autoCancelMinutes));
         } else {
             o.setCommittedReadyAt(o.getRequestedAt());
-            o.setAutoCancelAt(null);
         }
+
+        o.setAutoCancelAt(o.getCreatedAt().plusSeconds(alertSeconds));
     }
 
     // ---- admin interactions ----
@@ -76,7 +77,7 @@ public class OrderWorkflowService {
         final int add = Math.max(0, extra); // effectively final for lambdas
         if ("menu".equals(kind)) {
             customerOrderRepo.findById(id).ifPresent(o -> {
-                if (o.isAsap()) {
+                if (o.isAsap() && o.getStatus() == OrderStatus.NEW) {
                     o.setAdminExtraMinutes(add);
                     o.setCommittedReadyAt(o.getCreatedAt().plusMinutes(o.getMinPrepMinutes() + add));
                     customerOrderRepo.save(o);
@@ -84,7 +85,7 @@ public class OrderWorkflowService {
             });
         } else if ("buffet".equals(kind)) {
             buffetOrderRepo.findById(id).ifPresent(o -> {
-                if (o.isAsap()) {
+                if (o.isAsap() && o.getStatus() == OrderStatus.NEW) {
                     o.setAdminExtraMinutes(add);
                     o.setCommittedReadyAt(o.getCreatedAt().plusMinutes(o.getMinPrepMinutes() + add));
                     buffetOrderRepo.save(o);
@@ -100,15 +101,15 @@ public class OrderWorkflowService {
                 o.setStatus(OrderStatus.CONFIRMED);
                 customerOrderRepo.save(o);
                 try { webPushService.broadcast("admin", "{\"title\":\"Order confirmed\",\"body\":\"" + o.getId() + "\"}"); } catch (Exception ignored){}
-                try { /* email customer confirmation with track link */ } catch (Exception ignored){}
-                if (print) { /* trigger printer if present */ }
+                try { /* send customer confirmation with tracking link */ } catch (Exception ignored){}
+                if (print) { /* print ticket */ }
             });
         } else if ("buffet".equals(kind)) {
             buffetOrderRepo.findById(id).ifPresent(o -> {
                 o.setStatus(OrderStatus.CONFIRMED);
                 buffetOrderRepo.save(o);
                 try { webPushService.broadcast("admin", "{\"title\":\"Buffet confirmed\",\"body\":\"" + o.getId() + "\"}"); } catch (Exception ignored){}
-                try { /* email */ } catch (Exception ignored){}
+                try { /* send confirmation */ } catch (Exception ignored){}
             });
         }
     }
