@@ -33,30 +33,35 @@ public class OrderWorkflowService {
         if (o.getMinPrepMinutes() == null || o.getMinPrepMinutes() <= 0) o.setMinPrepMinutes(defaultMinPrep);
         if (o.getAdminExtraMinutes() == null) o.setAdminExtraMinutes(0);
 
+        // ⬇️ Defensive: fall back to "now" if not yet persisted
+        var basis = (o.getCreatedAt() != null) ? o.getCreatedAt() : LocalDateTime.now();
+
         if (o.isAsap()) {
-            var ready = o.getCreatedAt().plusMinutes(o.getMinPrepMinutes() + o.getAdminExtraMinutes());
+            var ready = basis.plusMinutes(o.getMinPrepMinutes() + o.getAdminExtraMinutes());
             o.setCommittedReadyAt(ready);
         } else {
-            o.setCommittedReadyAt(o.getRequestedAt()); // admin must not change; UI enforces
+            o.setCommittedReadyAt(o.getRequestedAt());
         }
 
-        // NEW orders (ASAP or scheduled) must be confirmed/cancelled within alertSeconds
-        o.setAutoCancelAt(o.getCreatedAt().plusSeconds(alertSeconds));
+        o.setAutoCancelAt(basis.plusSeconds(alertSeconds));
     }
 
     public void applyInitialTiming(BuffetOrder o) {
         if (o.getMinPrepMinutes() == null || o.getMinPrepMinutes() <= 0) o.setMinPrepMinutes(defaultMinPrep);
         if (o.getAdminExtraMinutes() == null) o.setAdminExtraMinutes(0);
 
+        var basis = (o.getCreatedAt() != null) ? o.getCreatedAt() : LocalDateTime.now();
+
         if (o.isAsap()) {
-            var ready = o.getCreatedAt().plusMinutes(o.getMinPrepMinutes() + o.getAdminExtraMinutes());
+            var ready = basis.plusMinutes(o.getMinPrepMinutes() + o.getAdminExtraMinutes());
             o.setCommittedReadyAt(ready);
         } else {
             o.setCommittedReadyAt(o.getRequestedAt());
         }
 
-        o.setAutoCancelAt(o.getCreatedAt().plusSeconds(alertSeconds));
+        o.setAutoCancelAt(basis.plusSeconds(alertSeconds));
     }
+
 
     // ---- admin interactions ----
     @Transactional

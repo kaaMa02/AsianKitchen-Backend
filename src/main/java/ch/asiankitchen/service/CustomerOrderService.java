@@ -51,7 +51,7 @@ public class CustomerOrderService {
 
     @Transactional
     public CustomerOrderReadDTO create(CustomerOrderWriteDTO dto) {
-        var order = dto.toEntity();
+        final CustomerOrder order = dto.toEntity();       // <-- final (captured by lambdas)
         order.setStatus(OrderStatus.NEW);
 
         if (order.getOrderItems() == null || order.getOrderItems().isEmpty()) {
@@ -73,7 +73,7 @@ public class CustomerOrderService {
             }
 
             oi.setMenuItem(mi);
-            oi.setCustomerOrder(order);
+            oi.setCustomerOrder(order); // safe: 'order' is final
         });
 
         BigDecimal items = order.getOrderItems().stream()
@@ -106,8 +106,12 @@ public class CustomerOrderService {
             order.setPaymentStatus(PaymentStatus.NOT_REQUIRED);
         }
 
-        workflow.applyInitialTiming(order);
-        var saved = repo.save(order);
+        // Save → createdAt set by @PrePersist
+        CustomerOrder saved = repo.save(order);
+
+        // Compute timing with a non-null createdAt, then persist again
+        workflow.applyInitialTiming(saved);
+        saved = repo.save(saved);
 
         if (saved.getPaymentMethod() != PaymentMethod.CARD) {
             try {
@@ -116,9 +120,6 @@ public class CustomerOrderService {
                         {"title":"New Order (Menu)","body":"%s order %s","url":"/admin/orders"}
                         """.formatted(saved.getOrderType(), saved.getId()));
             } catch (Throwable ignored) {}
-        }
-
-        if (saved.getPaymentMethod() != PaymentMethod.CARD) {
             try { sendCustomerConfirmationWithTrackLink(saved); } catch (Throwable ignored) {}
         }
 

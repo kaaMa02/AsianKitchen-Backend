@@ -108,7 +108,7 @@ public class CustomerOrder {
 
     @PrePersist
     protected void onCreate() {
-        if (createdAt == null) createdAt = LocalDateTime.now(); // stored as UTC by Hibernate config
+        if (createdAt == null) createdAt = LocalDateTime.now();
         if (paymentStatus == null) paymentStatus = PaymentStatus.REQUIRES_PAYMENT_METHOD;
         if (minPrepMinutes == null) minPrepMinutes = 45;
         if (adminExtraMinutes == null) adminExtraMinutes = 0;

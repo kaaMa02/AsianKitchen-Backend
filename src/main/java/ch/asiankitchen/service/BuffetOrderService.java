@@ -50,7 +50,7 @@ public class BuffetOrderService {
 
     @Transactional
     public BuffetOrderReadDTO create(BuffetOrderWriteDTO dto) {
-        var order = dto.toEntity();
+        final BuffetOrder order = dto.toEntity();  // final for safety
         order.setStatus(OrderStatus.NEW);
 
         BigDecimal items = Optional.ofNullable(order.getTotalPrice())
@@ -74,8 +74,9 @@ public class BuffetOrderService {
             order.setPaymentStatus(PaymentStatus.NOT_REQUIRED);
         }
 
-        workflow.applyInitialTiming(order);
-        var saved = repo.save(order);
+        BuffetOrder saved = repo.save(order);
+        workflow.applyInitialTiming(saved);
+        saved = repo.save(saved);
 
         if (saved.getPaymentMethod() != PaymentMethod.CARD) {
             try {
@@ -86,9 +87,6 @@ public class BuffetOrderService {
                         """.formatted(saved.getOrderType(), saved.getId())
                 );
             } catch (Throwable ignored) {}
-        }
-
-        if (saved.getPaymentMethod() != PaymentMethod.CARD) {
             try { sendCustomerConfirmationWithTrackLink(saved); } catch (Throwable ignored) {}
         }
 
