@@ -17,7 +17,9 @@ public class OrderWorkflowService {
 
     private final CustomerOrderRepository customerOrderRepo;
     private final BuffetOrderRepository buffetOrderRepo;
-    private final EmailService mailService;      // reserved for future use if needed
+    private final ReservationRepository reservationRepo;
+    private final ReservationEmailService reservationEmailService;
+    private final EmailService mailService;
     private final WebPushService webPushService;
 
     @Value("${app.order.min-prep-minutes:45}")
@@ -67,6 +69,10 @@ public class OrderWorkflowService {
             case "buffet" -> buffetOrderRepo.findById(id).ifPresent(o -> {
                 o.setSeenAt(LocalDateTime.now());
                 buffetOrderRepo.save(o);
+            });
+            case "reservation" -> reservationRepo.findById(id).ifPresent(r -> {
+                r.setSeenAt(LocalDateTime.now());
+                reservationRepo.save(r);
             });
             default -> {}
         }
@@ -120,14 +126,20 @@ public class OrderWorkflowService {
             customerOrderRepo.findById(id).ifPresent(o -> {
                 o.setStatus(OrderStatus.CANCELLED);
                 customerOrderRepo.save(o);
-                try { /* email cancellation */ } catch (Exception ignored){}
-                // optional: refund via Stripe if paid & requested
+                try { /* email customer optionally */ } catch (Exception ignored){}
+                // refund logic if needed
             });
         } else if ("buffet".equals(kind)) {
             buffetOrderRepo.findById(id).ifPresent(o -> {
                 o.setStatus(OrderStatus.CANCELLED);
                 buffetOrderRepo.save(o);
-                try { /* email */ } catch (Exception ignored){}
+                try { /* email customer optionally */ } catch (Exception ignored){}
+            });
+        } else if ("reservation".equals(kind)) {
+            reservationRepo.findById(id).ifPresent(r -> {
+                r.setStatus(ReservationStatus.CANCELLED);
+                reservationRepo.save(r);
+                try { reservationEmailService.sendRejectionToCustomer(r); } catch (Exception ignored){}
             });
         }
     }

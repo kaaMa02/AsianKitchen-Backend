@@ -1,3 +1,4 @@
+-- V23
 UPDATE public.orders
 SET user_id=NULL, first_name='Raoul', last_name='Blenke', email='raoul.blenke1@gmail.com', phone='0789439912', street='Leberngasse', street_no='1', plz='4600', city='Olten', order_type='DELIVERY', special_instructions=NULL, status='NEW', total_price=30.44, created_at='2025-10-18 18:33:42.812', deleted_at=NULL, payment_intent_id=NULL, payment_status='NOT_REQUIRED', payment_method='TWINT', items_subtotal_before_discount=31.00, discount_percent=20.00, discount_amount=6.20, items_subtotal_after_discount=24.80, vat_amount=0.64, delivery_fee=5.00
 WHERE id='2afd014d-fa6e-4e9b-8caf-f868d7e37631'::uuid;

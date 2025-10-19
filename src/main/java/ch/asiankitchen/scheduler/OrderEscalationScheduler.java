@@ -60,17 +60,19 @@ public class OrderEscalationScheduler {
                     && o.getPaymentStatus() != PaymentStatus.SUCCEEDED) {
                 o.setStatus(OrderStatus.CANCELLED);
                 customerOrderRepo.save(o);
-                try {
-                    mailService.sendSimple(
-                            escalationEmail,
-                            "Order auto-cancelled (no action in 60s)",
-                            "Order %s (%s) auto-cancelled.\nCustomer: %s %s\nPhone: %s"
-                                    .formatted(o.getId(), o.getOrderType(),
-                                            o.getCustomerInfo().getFirstName(), o.getCustomerInfo().getLastName(),
-                                            o.getCustomerInfo().getPhone()),
-                            null
-                    );
-                } catch (Exception ignored) {}
+                if (escalationEmail != null && !escalationEmail.isBlank()) {
+                    try {
+                        mailService.sendSimple(
+                                escalationEmail,
+                                "Order auto-cancelled (no action in 60s)",
+                                "Order %s (%s) auto-cancelled.\nCustomer: %s %s\nPhone: %s"
+                                        .formatted(o.getId(), o.getOrderType(),
+                                                o.getCustomerInfo().getFirstName(), o.getCustomerInfo().getLastName(),
+                                                o.getCustomerInfo().getPhone()),
+                                null
+                        );
+                    } catch (Exception ignored) {}
+                }
                 try { webPush.broadcast("admin", "{\"title\":\"Order auto-cancelled\",\"body\":\"" + o.getId() + "\"}"); } catch (Exception ignored) {}
             }
         });
@@ -80,17 +82,19 @@ public class OrderEscalationScheduler {
                     && o.getPaymentStatus() != PaymentStatus.SUCCEEDED) {
                 o.setStatus(OrderStatus.CANCELLED);
                 buffetOrderRepo.save(o);
-                try {
-                    mailService.sendSimple(
-                            escalationEmail,
-                            "Buffet auto-cancelled (no action in 60s)",
-                            "Buffet %s auto-cancelled.\nCustomer: %s %s\nPhone: %s"
-                                    .formatted(o.getId(),
-                                            o.getCustomerInfo().getFirstName(), o.getCustomerInfo().getLastName(),
-                                            o.getCustomerInfo().getPhone()),
-                            null
-                    );
-                } catch (Exception ignored) {}
+                if (escalationEmail != null && !escalationEmail.isBlank()) {
+                    try {
+                        mailService.sendSimple(
+                                escalationEmail,
+                                "Buffet auto-cancelled (no action in 60s)",
+                                "Buffet %s auto-cancelled.\nCustomer: %s %s\nPhone: %s"
+                                        .formatted(o.getId(),
+                                                o.getCustomerInfo().getFirstName(), o.getCustomerInfo().getLastName(),
+                                                o.getCustomerInfo().getPhone()),
+                                null
+                        );
+                    } catch (Exception ignored) {}
+                }
                 try { webPush.broadcast("admin", "{\"title\":\"Buffet auto-cancelled\",\"body\":\"" + o.getId() + "\"}"); } catch (Exception ignored) {}
             }
         });
@@ -99,18 +103,20 @@ public class OrderEscalationScheduler {
             if (r.getAutoCancelAt() != null && !now.isBefore(r.getAutoCancelAt())) {
                 r.setStatus(ReservationStatus.CANCELLED);
                 reservationRepo.save(r);
-                try {
-                    mailService.sendSimple(
-                            escalationEmail,
-                            "Reservation auto-cancelled (no action in 60s)",
-                            "Reservation %s auto-cancelled.\nCustomer: %s %s\nPhone: %s\nTime: %s"
-                                    .formatted(r.getId(),
-                                            r.getCustomerInfo().getFirstName(), r.getCustomerInfo().getLastName(),
-                                            r.getCustomerInfo().getPhone(),
-                                            r.getReservationDateTime()),
-                            null
-                    );
-                } catch (Exception ignored) {}
+                if (escalationEmail != null && !escalationEmail.isBlank()) {
+                    try {
+                        mailService.sendSimple(
+                                escalationEmail,
+                                "Reservation auto-cancelled (no action in 60s)",
+                                "Reservation %s auto-cancelled.\nCustomer: %s %s\nPhone: %s\nTime: %s"
+                                        .formatted(r.getId(),
+                                                r.getCustomerInfo().getFirstName(), r.getCustomerInfo().getLastName(),
+                                                r.getCustomerInfo().getPhone(),
+                                                r.getReservationDateTime()),
+                                null
+                        );
+                    } catch (Exception ignored) {}
+                }
                 try { webPush.broadcast("admin", "{\"title\":\"Reservation auto-cancelled\",\"body\":\"" + r.getId() + "\"}"); } catch (Exception ignored) {}
             }
         });

@@ -1,4 +1,5 @@
 -- Customer orders
+-- V22
 ALTER TABLE orders
     ADD COLUMN asap BOOLEAN NOT NULL DEFAULT TRUE,
   ADD COLUMN requested_at TIMESTAMP NULL,

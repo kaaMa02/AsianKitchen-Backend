@@ -24,17 +24,20 @@ public class CustomerOrderService {
     private final EmailService email;
     private final WebPushService webPushService;
     private final DiscountService discountService;
+    private final OrderWorkflowService workflow;
 
     public CustomerOrderService(CustomerOrderRepository repo,
                                 MenuItemRepository menuItemRepo,
                                 EmailService email,
                                 WebPushService webPushService,
-                                DiscountService discountService) {
+                                DiscountService discountService,
+                                OrderWorkflowService workflow) {
         this.repo = repo;
         this.menuItemRepo = menuItemRepo;
         this.email = email;
         this.webPushService = webPushService;
         this.discountService = discountService;
+        this.workflow = workflow;
     }
 
     @Value("${vat.ratePercent:2.6}")
@@ -103,6 +106,7 @@ public class CustomerOrderService {
             order.setPaymentStatus(PaymentStatus.NOT_REQUIRED);
         }
 
+        workflow.applyInitialTiming(order);
         var saved = repo.save(order);
 
         if (saved.getPaymentMethod() != PaymentMethod.CARD) {

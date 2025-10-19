@@ -25,15 +25,18 @@ public class BuffetOrderService {
     private final EmailService email;
     private final WebPushService webPushService;
     private final DiscountService discountService;
+    private final OrderWorkflowService workflow;
 
     public BuffetOrderService(BuffetOrderRepository repo,
                               EmailService email,
                               WebPushService webPushService,
-                              DiscountService discountService) {
+                              DiscountService discountService,
+                              OrderWorkflowService workflow) {
         this.repo = repo;
         this.email = email;
         this.webPushService = webPushService;
         this.discountService = discountService;
+        this.workflow = workflow;
     }
 
     @Value("${vat.ratePercent:2.6}")
@@ -71,6 +74,7 @@ public class BuffetOrderService {
             order.setPaymentStatus(PaymentStatus.NOT_REQUIRED);
         }
 
+        workflow.applyInitialTiming(order);
         var saved = repo.save(order);
 
         if (saved.getPaymentMethod() != PaymentMethod.CARD) {
