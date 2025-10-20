@@ -91,6 +91,10 @@ public class BuffetOrder {
     @Column(name = "escalated_at")
     private LocalDateTime escalatedAt;
 
+    public void setBuffetOrderItems(List<BuffetOrderItem> items) {
+        this.buffetOrderItems = (items == null) ? new ArrayList<>() : new ArrayList<>(items);
+    }
+
     @PrePersist
     public void onCreate() {
         if (createdAt == null) createdAt = LocalDateTime.now();

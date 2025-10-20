@@ -106,6 +106,10 @@ public class CustomerOrder {
     @Column(name = "escalated_at")
     private LocalDateTime escalatedAt;
 
+    public void setOrderItems(List<OrderItem> items) {
+        this.orderItems = (items == null) ? new ArrayList<>() : new ArrayList<>(items);
+    }
+
     @PrePersist
     protected void onCreate() {
         if (createdAt == null) createdAt = LocalDateTime.now();

@@ -11,8 +11,10 @@ import lombok.Builder;
 import lombok.Data;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import lombok.AllArgsConstructor;
 import lombok.NoArgsConstructor;
@@ -24,7 +26,8 @@ import lombok.NoArgsConstructor;
 public class BuffetOrderWriteDTO {
     private UUID userId;
 
-    @NotNull @Valid
+    @NotNull
+    @Valid
     private CustomerInfoDTO customerInfo;
 
     @NotNull
@@ -32,7 +35,8 @@ public class BuffetOrderWriteDTO {
 
     private String specialInstructions;
 
-    @NotEmpty @Valid
+    @NotEmpty
+    @Valid
     private List<BuffetOrderItemWriteDTO> items;
 
     @NotNull
@@ -41,19 +45,25 @@ public class BuffetOrderWriteDTO {
     private Boolean asap;               // default true
     private LocalDateTime scheduledAt;  // used if asap=false
 
+    public void setItems(List<BuffetOrderItemWriteDTO> items) {
+        this.items = (items == null) ? new ArrayList<>() : new ArrayList<>(items);
+    }
+
     public BuffetOrder toEntity() {
         var order = new BuffetOrder();
         if (userId != null) order.setUser(User.builder().id(userId).build());
         order.setCustomerInfo(CustomerInfoDTO.toEntity(customerInfo));
         order.setOrderType(orderType);
         order.setSpecialInstructions(specialInstructions);
-        order.setBuffetOrderItems(items.stream().map(dto -> {
-            var item = dto.toEntity();
-            item.setBuffetOrder(order);
-            return item;
-        }).toList());
+        var list = items.stream()
+                .map(dto -> {
+                    var item = dto.toEntity();
+                    item.setBuffetOrder(order);
+                    return item;
+                })
+                .collect(Collectors.toCollection(ArrayList::new));
+        order.setBuffetOrderItems(list);
         order.setPaymentMethod(paymentMethod);
-
         order.setAsap(asap == null || asap);
         if (Boolean.FALSE.equals(asap)) order.setRequestedAt(scheduledAt);
         return order;
