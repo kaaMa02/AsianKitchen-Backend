@@ -28,22 +28,27 @@ public class OrderWorkflowService {
     @Value("${app.order.alert-seconds:60}")
     private int alertSeconds;
 
+    @Value("${app.order.escalate-minutes:5}")
+    private int escalateMinutes;
+
+    @Value("${app.order.autocancel-minutes:15}")
+    private int autocancelMinutes;
+
     // ---- compute committed times on creation (and the 60s alert window) ----
     public void applyInitialTiming(CustomerOrder o) {
         if (o.getMinPrepMinutes() == null || o.getMinPrepMinutes() <= 0) o.setMinPrepMinutes(defaultMinPrep);
         if (o.getAdminExtraMinutes() == null) o.setAdminExtraMinutes(0);
 
-        // ⬇️ Defensive: fall back to "now" if not yet persisted
         var basis = (o.getCreatedAt() != null) ? o.getCreatedAt() : LocalDateTime.now();
 
         if (o.isAsap()) {
-            var ready = basis.plusMinutes(o.getMinPrepMinutes() + o.getAdminExtraMinutes());
-            o.setCommittedReadyAt(ready);
+            o.setCommittedReadyAt(basis.plusMinutes(o.getMinPrepMinutes() + o.getAdminExtraMinutes()));
         } else {
             o.setCommittedReadyAt(o.getRequestedAt());
         }
 
-        o.setAutoCancelAt(basis.plusSeconds(alertSeconds));
+        // IMPORTANT: auto-cancel uses minutes, not the 60s “alert” window
+        o.setAutoCancelAt(basis.plusMinutes(autocancelMinutes));
     }
 
     public void applyInitialTiming(BuffetOrder o) {
@@ -53,13 +58,13 @@ public class OrderWorkflowService {
         var basis = (o.getCreatedAt() != null) ? o.getCreatedAt() : LocalDateTime.now();
 
         if (o.isAsap()) {
-            var ready = basis.plusMinutes(o.getMinPrepMinutes() + o.getAdminExtraMinutes());
-            o.setCommittedReadyAt(ready);
+            o.setCommittedReadyAt(basis.plusMinutes(o.getMinPrepMinutes() + o.getAdminExtraMinutes()));
         } else {
             o.setCommittedReadyAt(o.getRequestedAt());
         }
 
-        o.setAutoCancelAt(basis.plusSeconds(alertSeconds));
+        // IMPORTANT: auto-cancel uses minutes, not the 60s “alert” window
+        o.setAutoCancelAt(basis.plusMinutes(autocancelMinutes));
     }
 
 

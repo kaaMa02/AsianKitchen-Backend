@@ -26,4 +26,14 @@ public interface CustomerOrderRepository extends JpaRepository<CustomerOrder, UU
     """)
     List<CustomerOrder> findAdminVisibleWithItems(@Param("statuses") List<PaymentStatus> statuses);
     List<CustomerOrder> findAllByStatus(OrderStatus status);
+    @Query("""
+      select distinct o
+      from CustomerOrder o
+      left join fetch o.orderItems oi
+      left join fetch oi.menuItem mi
+      left join fetch mi.foodItem fi
+      where o.status = ch.asiankitchen.model.OrderStatus.NEW
+      order by o.createdAt desc
+    """)
+    List<CustomerOrder> findNewWithItems();
 }

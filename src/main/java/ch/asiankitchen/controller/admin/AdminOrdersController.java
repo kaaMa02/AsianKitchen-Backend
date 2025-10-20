@@ -27,7 +27,7 @@ public class AdminOrdersController {
     public List<NewOrderCardDTO> newOrders() {
         var out = new ArrayList<NewOrderCardDTO>();
 
-        customerOrderRepo.findAllByStatus(OrderStatus.NEW).forEach(o -> out.add(NewOrderCardDTO.builder()
+        customerOrderRepo.findNewWithItems().forEach(o -> out.add(NewOrderCardDTO.builder()
                 .id(o.getId())
                 .kind("menu")
                 .customerInfo(CustomerInfoDTO.fromEntity(o.getCustomerInfo()))
@@ -51,7 +51,7 @@ public class AdminOrdersController {
                 .menuItems(o.getOrderItems().stream().map(OrderItemReadDTO::fromEntity).toList())
                 .build()));
 
-        buffetOrderRepo.findAllByStatus(OrderStatus.NEW).forEach(o -> out.add(NewOrderCardDTO.builder()
+        buffetOrderRepo.findNewWithItems().forEach(o -> out.add(NewOrderCardDTO.builder()
                 .id(o.getId())
                 .kind("buffet")
                 .customerInfo(CustomerInfoDTO.fromEntity(o.getCustomerInfo()))

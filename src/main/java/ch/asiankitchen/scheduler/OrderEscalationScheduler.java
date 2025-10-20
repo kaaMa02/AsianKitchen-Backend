@@ -25,8 +25,11 @@ public class OrderEscalationScheduler {
     @Value("${app.mail.to.escalation}")
     private String escalationEmail;
 
-    @Value("${app.order.alert-seconds:60}")
-    private int alertSeconds;
+    @Value("${app.order.escalate-minutes:5}")
+    private int escalateMinutes;
+
+    @Value("${app.order.autocancel-minutes:15}")
+    private int autocancelMinutes;
 
     // tick every second
     @Scheduled(fixedDelay = 1000)
@@ -34,91 +37,104 @@ public class OrderEscalationScheduler {
     public void tick() {
         var now = LocalDateTime.now();
 
-        // Ensure NEW orders have autoCancelAt set (safety for any legacy rows)
+        // ───────────── Customer (menu) orders ─────────────
         customerOrderRepo.findAllByStatus(OrderStatus.NEW).forEach(o -> {
-            if (o.getAutoCancelAt() == null) {
-                o.setAutoCancelAt(o.getCreatedAt().plusSeconds(alertSeconds));
-                customerOrderRepo.save(o);
-            }
-        });
-        buffetOrderRepo.findAllByStatus(OrderStatus.NEW).forEach(o -> {
-            if (o.getAutoCancelAt() == null) {
-                o.setAutoCancelAt(o.getCreatedAt().plusSeconds(alertSeconds));
-                buffetOrderRepo.save(o);
-            }
-        });
-        reservationRepo.findAllByStatus(ReservationStatus.REQUESTED).forEach(r -> {
-            if (r.getAutoCancelAt() == null) {
-                r.setAutoCancelAt(r.getCreatedAt().plusSeconds(alertSeconds));
-                reservationRepo.save(r);
-            }
-        });
+            boolean dirty = false;
 
-        // Auto-cancel at 60s boundary + email second owner + push
-        customerOrderRepo.findAllByStatus(OrderStatus.NEW).forEach(o -> {
-            if (o.getAutoCancelAt() != null && !now.isBefore(o.getAutoCancelAt())
-                    && o.getPaymentStatus() != PaymentStatus.SUCCEEDED) {
-                o.setStatus(OrderStatus.CANCELLED);
-                customerOrderRepo.save(o);
+            // backfill autoCancelAt for legacy rows
+            if (o.getAutoCancelAt() == null) {
+                o.setAutoCancelAt(o.getCreatedAt().plusMinutes(autocancelMinutes));
+                dirty = true;
+            }
+
+            // escalate once if unseen after escalateMinutes
+            if (o.getSeenAt() == null &&
+                    o.getEscalatedAt() == null &&
+                    !now.isBefore(o.getCreatedAt().plusMinutes(escalateMinutes))) {
+                o.setEscalatedAt(now);
+                dirty = true;
+                try { webPush.broadcast("admin", "{\"title\":\"Order waiting\",\"body\":\"" + o.getId() + "\"}"); } catch (Exception ignored) {}
                 if (escalationEmail != null && !escalationEmail.isBlank()) {
-                    try {
-                        mailService.sendSimple(
-                                escalationEmail,
-                                "Order auto-cancelled (no action in 60s)",
-                                "Order %s (%s) auto-cancelled.\nCustomer: %s %s\nPhone: %s"
-                                        .formatted(o.getId(), o.getOrderType(),
-                                                o.getCustomerInfo().getFirstName(), o.getCustomerInfo().getLastName(),
-                                                o.getCustomerInfo().getPhone()),
-                                null
-                        );
-                    } catch (Exception ignored) {}
+                    try { mailService.sendSimple(escalationEmail, "Order waiting action", "Order " + o.getId() + " needs attention.", null); } catch (Exception ignored) {}
                 }
+            }
+
+            // cancel only if still unseen at autoCancelAt and not already paid
+            if (o.getSeenAt() == null &&
+                    o.getAutoCancelAt() != null &&
+                    !now.isBefore(o.getAutoCancelAt()) &&
+                    o.getPaymentStatus() != PaymentStatus.SUCCEEDED) {
+                o.setStatus(OrderStatus.CANCELLED);
+                dirty = true;
                 try { webPush.broadcast("admin", "{\"title\":\"Order auto-cancelled\",\"body\":\"" + o.getId() + "\"}"); } catch (Exception ignored) {}
             }
+
+            if (dirty) customerOrderRepo.save(o);
         });
 
+        // ───────────── Buffet orders ─────────────
         buffetOrderRepo.findAllByStatus(OrderStatus.NEW).forEach(o -> {
-            if (o.getAutoCancelAt() != null && !now.isBefore(o.getAutoCancelAt())
-                    && o.getPaymentStatus() != PaymentStatus.SUCCEEDED) {
-                o.setStatus(OrderStatus.CANCELLED);
-                buffetOrderRepo.save(o);
-                if (escalationEmail != null && !escalationEmail.isBlank()) {
-                    try {
-                        mailService.sendSimple(
-                                escalationEmail,
-                                "Buffet auto-cancelled (no action in 60s)",
-                                "Buffet %s auto-cancelled.\nCustomer: %s %s\nPhone: %s"
-                                        .formatted(o.getId(),
-                                                o.getCustomerInfo().getFirstName(), o.getCustomerInfo().getLastName(),
-                                                o.getCustomerInfo().getPhone()),
-                                null
-                        );
-                    } catch (Exception ignored) {}
-                }
-                try { webPush.broadcast("admin", "{\"title\":\"Buffet auto-cancelled\",\"body\":\"" + o.getId() + "\"}"); } catch (Exception ignored) {}
+            boolean dirty = false;
+
+            if (o.getAutoCancelAt() == null) {
+                o.setAutoCancelAt(o.getCreatedAt().plusMinutes(autocancelMinutes));
+                dirty = true;
             }
+
+            if (o.getSeenAt() == null &&
+                    o.getEscalatedAt() == null &&
+                    !now.isBefore(o.getCreatedAt().plusMinutes(escalateMinutes))) {
+                o.setEscalatedAt(now);
+                dirty = true;
+                try { webPush.broadcast("admin", "{\"title\":\"Order waiting\",\"body\":\"" + o.getId() + "\"}"); } catch (Exception ignored) {}
+                if (escalationEmail != null && !escalationEmail.isBlank()) {
+                    try { mailService.sendSimple(escalationEmail, "Order waiting action", "Order " + o.getId() + " needs attention.", null); } catch (Exception ignored) {}
+                }
+            }
+
+            if (o.getSeenAt() == null &&
+                    o.getAutoCancelAt() != null &&
+                    !now.isBefore(o.getAutoCancelAt()) &&
+                    o.getPaymentStatus() != PaymentStatus.SUCCEEDED) {
+                o.setStatus(OrderStatus.CANCELLED);
+                dirty = true;
+                try { webPush.broadcast("admin", "{\"title\":\"Order auto-cancelled\",\"body\":\"" + o.getId() + "\"}"); } catch (Exception ignored) {}
+            }
+
+            if (dirty) buffetOrderRepo.save(o);
         });
 
+        // ───────────── Reservations ─────────────
         reservationRepo.findAllByStatus(ReservationStatus.REQUESTED).forEach(r -> {
-            if (r.getAutoCancelAt() != null && !now.isBefore(r.getAutoCancelAt())) {
-                r.setStatus(ReservationStatus.CANCELLED);
-                reservationRepo.save(r);
+            boolean dirty = false;
+
+            if (r.getAutoCancelAt() == null) {
+                r.setAutoCancelAt(r.getCreatedAt().plusMinutes(autocancelMinutes));
+                dirty = true;
+            }
+
+            if (r.getSeenAt() == null &&
+                    r.getEscalatedAt() == null &&
+                    !now.isBefore(r.getCreatedAt().plusMinutes(escalateMinutes))) {
+                r.setEscalatedAt(now);
+                dirty = true;
+                try { webPush.broadcast("admin", "{\"title\":\"Reservation waiting\",\"body\":\"" + r.getId() + "\"}"); } catch (Exception ignored) {}
                 if (escalationEmail != null && !escalationEmail.isBlank()) {
-                    try {
-                        mailService.sendSimple(
-                                escalationEmail,
-                                "Reservation auto-cancelled (no action in 60s)",
-                                "Reservation %s auto-cancelled.\nCustomer: %s %s\nPhone: %s\nTime: %s"
-                                        .formatted(r.getId(),
-                                                r.getCustomerInfo().getFirstName(), r.getCustomerInfo().getLastName(),
-                                                r.getCustomerInfo().getPhone(),
-                                                r.getReservationDateTime()),
-                                null
-                        );
-                    } catch (Exception ignored) {}
+                    try { mailService.sendSimple(escalationEmail, "Reservation waiting action", "Reservation " + r.getId() + " needs attention.", null); } catch (Exception ignored) {}
                 }
+            }
+
+            // cancel only if still unseen at autoCancelAt and not confirmed
+            if (r.getSeenAt() == null &&
+                    r.getAutoCancelAt() != null &&
+                    !now.isBefore(r.getAutoCancelAt()) &&
+                    r.getStatus() != ReservationStatus.CONFIRMED) {
+                r.setStatus(ReservationStatus.CANCELLED);
+                dirty = true;
                 try { webPush.broadcast("admin", "{\"title\":\"Reservation auto-cancelled\",\"body\":\"" + r.getId() + "\"}"); } catch (Exception ignored) {}
             }
+
+            if (dirty) reservationRepo.save(r);
         });
     }
 }

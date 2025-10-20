@@ -26,5 +26,15 @@ public interface BuffetOrderRepository extends JpaRepository<BuffetOrder, UUID> 
     """)
     List<BuffetOrder> findAdminVisibleWithItems(@Param("statuses") List<PaymentStatus> statuses);
     List<BuffetOrder> findAllByStatus(OrderStatus status);
+    @Query("""
+      select distinct b
+      from BuffetOrder b
+      left join fetch b.buffetOrderItems boi
+      left join fetch boi.buffetItem bi
+      left join fetch bi.foodItem fi
+      where b.status = ch.asiankitchen.model.OrderStatus.NEW
+      order by b.createdAt desc
+    """)
+    List<BuffetOrder> findNewWithItems();
 
 }
