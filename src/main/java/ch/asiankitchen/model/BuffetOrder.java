@@ -5,6 +5,7 @@ import lombok.*;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.*;
 
 @Entity
@@ -97,7 +98,7 @@ public class BuffetOrder {
 
     @PrePersist
     public void onCreate() {
-        if (createdAt == null) createdAt = LocalDateTime.now();
+        if (createdAt == null) createdAt = LocalDateTime.now(ZoneOffset.UTC);
         if (paymentStatus == null) paymentStatus = PaymentStatus.REQUIRES_PAYMENT_METHOD;
         if (minPrepMinutes == null) minPrepMinutes = 45;
         if (adminExtraMinutes == null) adminExtraMinutes = 0;

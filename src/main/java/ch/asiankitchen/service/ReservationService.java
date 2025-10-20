@@ -6,9 +6,13 @@ import ch.asiankitchen.model.Reservation;
 import ch.asiankitchen.model.ReservationStatus;
 import ch.asiankitchen.repository.ReservationRepository;
 import jakarta.persistence.EntityNotFoundException;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.*;
 import java.util.stream.*;
 
@@ -17,6 +21,15 @@ public class ReservationService {
     private final ReservationRepository repo;
     private final ReservationEmailService emailService;
 
+    @Value("${app.timezone:Europe/Zurich}")
+    private String appTz;
+
+    private LocalDateTime toUtc(LocalDateTime local) {
+        if (local == null) return null;
+        return local.atZone(ZoneId.of(appTz))
+                .withZoneSameInstant(ZoneOffset.UTC)
+                .toLocalDateTime();
+    }
 
     public ReservationService(ReservationRepository repo, ReservationEmailService emailService) {
         this.repo = repo;
@@ -25,11 +38,11 @@ public class ReservationService {
 
     @Transactional
     public ReservationReadDTO create(ReservationWriteDTO dto) {
-        Reservation saved = repo.save(dto.toEntity());
-
-        // Send email to restaurant
+        var entity = dto.toEntity();
+        // 🔧 NEW: the date picker is local CH time — store as UTC
+        entity.setReservationDateTime(toUtc(dto.getReservationDateTime()));
+        var saved = repo.save(entity);
         emailService.sendNewReservationToRestaurant(saved);
-
         return ReservationReadDTO.fromEntity(saved);
     }
 

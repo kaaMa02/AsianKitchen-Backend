@@ -5,6 +5,7 @@ import lombok.*;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -112,7 +113,7 @@ public class CustomerOrder {
 
     @PrePersist
     protected void onCreate() {
-        if (createdAt == null) createdAt = LocalDateTime.now();
+        if (createdAt == null) createdAt = LocalDateTime.now(ZoneOffset.UTC);
         if (paymentStatus == null) paymentStatus = PaymentStatus.REQUIRES_PAYMENT_METHOD;
         if (minPrepMinutes == null) minPrepMinutes = 45;
         if (adminExtraMinutes == null) adminExtraMinutes = 0;

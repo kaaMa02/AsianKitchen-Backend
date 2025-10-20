@@ -9,6 +9,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.UUID;
 
 @Service
@@ -34,20 +36,31 @@ public class OrderWorkflowService {
     @Value("${app.order.autocancel-minutes:15}")
     private int autocancelMinutes;
 
+    @Value("${app.timezone:Europe/Zurich}")
+    private String appTz;
+
+    private LocalDateTime toUtc(LocalDateTime local) {
+        if (local == null) return null;
+        return local.atZone(ZoneId.of(appTz))
+                .withZoneSameInstant(ZoneOffset.UTC)
+                .toLocalDateTime();
+    }
+
     // ---- compute committed times on creation (and the 60s alert window) ----
     public void applyInitialTiming(CustomerOrder o) {
         if (o.getMinPrepMinutes() == null || o.getMinPrepMinutes() <= 0) o.setMinPrepMinutes(defaultMinPrep);
         if (o.getAdminExtraMinutes() == null) o.setAdminExtraMinutes(0);
 
-        var basis = (o.getCreatedAt() != null) ? o.getCreatedAt() : LocalDateTime.now();
-
-        if (o.isAsap()) {
-            o.setCommittedReadyAt(basis.plusMinutes(o.getMinPrepMinutes() + o.getAdminExtraMinutes()));
-        } else {
-            o.setCommittedReadyAt(o.getRequestedAt());
+        // 🔧 NEW: normalize requestedAt from local CH to UTC
+        if (!o.isAsap() && o.getRequestedAt() != null) {
+            o.setRequestedAt(toUtc(o.getRequestedAt()));
         }
 
-        // IMPORTANT: auto-cancel uses minutes, not the 60s “alert” window
+        var basis = (o.getCreatedAt() != null) ? o.getCreatedAt() : LocalDateTime.now(ZoneOffset.UTC);
+        o.setCommittedReadyAt(o.isAsap()
+                ? basis.plusMinutes(o.getMinPrepMinutes() + o.getAdminExtraMinutes())
+                : o.getRequestedAt());
+
         o.setAutoCancelAt(basis.plusMinutes(autocancelMinutes));
     }
 
@@ -55,18 +68,18 @@ public class OrderWorkflowService {
         if (o.getMinPrepMinutes() == null || o.getMinPrepMinutes() <= 0) o.setMinPrepMinutes(defaultMinPrep);
         if (o.getAdminExtraMinutes() == null) o.setAdminExtraMinutes(0);
 
-        var basis = (o.getCreatedAt() != null) ? o.getCreatedAt() : LocalDateTime.now();
-
-        if (o.isAsap()) {
-            o.setCommittedReadyAt(basis.plusMinutes(o.getMinPrepMinutes() + o.getAdminExtraMinutes()));
-        } else {
-            o.setCommittedReadyAt(o.getRequestedAt());
+        // 🔧 NEW
+        if (!o.isAsap() && o.getRequestedAt() != null) {
+            o.setRequestedAt(toUtc(o.getRequestedAt()));
         }
 
-        // IMPORTANT: auto-cancel uses minutes, not the 60s “alert” window
+        var basis = (o.getCreatedAt() != null) ? o.getCreatedAt() : LocalDateTime.now(ZoneOffset.UTC);
+        o.setCommittedReadyAt(o.isAsap()
+                ? basis.plusMinutes(o.getMinPrepMinutes() + o.getAdminExtraMinutes())
+                : o.getRequestedAt());
+
         o.setAutoCancelAt(basis.plusMinutes(autocancelMinutes));
     }
-
 
     // ---- admin interactions ----
     @Transactional
