@@ -107,8 +107,17 @@ public class OrderWorkflowService {
                     buffetOrderRepo.save(o);
                 }
             });
-        }
+        } else if ("reservation".equals(kind)) {
+        reservationRepo.findById(id).ifPresent(r -> {
+            r.setStatus(ReservationStatus.CONFIRMED);
+            reservationRepo.save(r);
+            try { webPushService.broadcast("admin", "{\"title\":\"Reservation confirmed\",\"body\":\"" + r.getId() + "\"}"); } catch (Exception ignored) {}
+            try { reservationEmailService.sendConfirmationToCustomer(r); } catch (Exception ignored) {}
+        });
     }
+
+
+}
 
     @Transactional
     public void confirmOrder(String kind, UUID id, boolean print) {
