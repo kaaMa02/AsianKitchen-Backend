@@ -209,7 +209,7 @@ public class OrderWorkflowService {
                     notifyOwnerRefundNeeded("Menu", o.getId(), o.getCustomerInfo(), o, reason);
                 }
 
-                try { /* optionally email customer */ } catch (Exception ignored){}
+                try { sendCancellationEmailToCustomer(o, reason); } catch (Exception ignored) {}
             });
         } else if ("buffet".equals(kind)) {
             buffetOrderRepo.findById(id).ifPresent(o -> {
@@ -220,7 +220,8 @@ public class OrderWorkflowService {
                     notifyOwnerRefundNeeded("Buffet", o.getId(), o.getCustomerInfo(), o, reason);
                 }
 
-                try { /* optionally email customer */ } catch (Exception ignored){}
+                try { sendCancellationEmailToCustomer(o, reason); } catch (Exception ignored) {}
+
             });
         } else if ("reservation".equals(kind)) {
             reservationRepo.findById(id).ifPresent(r -> {
@@ -237,6 +238,79 @@ public class OrderWorkflowService {
         if (utcTarget == null) return 0;
         var nowUtc = LocalDateTime.now(ZoneOffset.UTC);
         return Math.max(0, Duration.between(nowUtc, utcTarget).toMinutes());
+    }
+
+    // ─── email helpers ──────────────────────────────────────────────────────────
+    private void sendCancellationEmailToCustomer(CustomerOrder o, String reason) {
+        String to = Optional.ofNullable(o.getCustomerInfo()).map(CustomerInfo::getEmail).orElse(null);
+        if (to == null || to.isBlank()) return;
+
+        boolean paidCard = o.getPaymentStatus() == PaymentStatus.SUCCEEDED;
+        String paymentLine = paidCard
+                ? "Your card payment will be refunded. You’ll receive a separate notice when it’s processed."
+                : "No online charge was made.";
+
+        String subject = "Order cancelled — Asian Kitchen";
+        String body = """
+        Hi %s,
+
+        We’re sorry — your order has been cancelled.
+
+        Order ID: %s
+        Placed:   %s
+        Deliver:  %s
+        Total:    CHF %s
+
+        %s%s
+
+        — Asian Kitchen
+        """.formatted(
+                Optional.ofNullable(o.getCustomerInfo()).map(CustomerInfo::getFirstName).orElse(""),
+                o.getId(),
+                fmtLocal(o.getCreatedAt()),
+                o.isAsap() ? "ASAP" : fmtLocal(o.getCommittedReadyAt()),
+                o.getTotalPrice(),
+                (reason != null && !reason.isBlank()) ? "Reason:  " + reason + "\n\n" : "",
+                paymentLine
+        );
+
+        mailService.sendSimple(to, subject, body, null);
+    }
+
+    private void sendCancellationEmailToCustomer(BuffetOrder o, String reason) {
+        String to = Optional.ofNullable(o.getCustomerInfo()).map(CustomerInfo::getEmail).orElse(null);
+        if (to == null || to.isBlank()) return;
+
+        boolean paidCard = o.getPaymentStatus() == PaymentStatus.SUCCEEDED;
+        String paymentLine = paidCard
+                ? "Your card payment will be refunded. You’ll receive a separate notice when it’s processed."
+                : "No online charge was made.";
+
+        String subject = "Buffet order cancelled — Asian Kitchen";
+        String body = """
+        Hi %s,
+
+        We’re sorry — your buffet order has been cancelled.
+
+        Order ID: %s
+        Placed:   %s
+        Deliver:  %s
+        Total:    CHF %s
+
+        %s%s
+
+        — Asian Kitchen
+        """.formatted(
+                Optional.ofNullable(o.getCustomerInfo()).map(CustomerInfo::getFirstName).orElse(""),
+                o.getId(),
+                fmtLocal(o.getCreatedAt()),
+                o.isAsap() ? "ASAP" : fmtLocal(o.getCommittedReadyAt()),
+                o.getTotalPrice(),
+                (reason != null && !reason.isBlank()) ? "Reason:  " + reason + "\n\n" : "",
+                paymentLine
+        );
+
+        mailService.sendSimple(to, subject, body, null);
     }
 
     private void sendEtaEmailAfterConfirm(CustomerOrder o) {
