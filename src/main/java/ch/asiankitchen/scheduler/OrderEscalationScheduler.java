@@ -1,3 +1,4 @@
+// backend/src/main/java/ch/asiankitchen/scheduler/OrderEscalationScheduler.java
 package ch.asiankitchen.scheduler;
 
 import ch.asiankitchen.model.*;
@@ -10,11 +11,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
-import java.time.ZoneId;
-import java.time.ZoneOffset;
-import java.time.format.DateTimeFormatter;
-import java.util.Optional;
+import java.time.*;
 
 @Component
 @RequiredArgsConstructor
@@ -29,19 +26,19 @@ public class OrderEscalationScheduler {
     @Value("${app.mail.to.escalation:}")
     private String escalationEmail;
 
+    @Value("${app.timezone:Europe/Zurich}")
+    private String appTz;
+
     @Value("${app.order.escalate-minutes:5}")
     private int escalateMinutes;
 
     @Value("${app.order.autocancel-minutes:15}")
     private int autocancelMinutes;
 
-    @Value("${app.timezone:Europe/Zurich}")
-    private String appTz;
-
-    private DateTimeFormatter fmt() { return DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"); }
-    private String localFmt(LocalDateTime utc) {
-        if (utc == null) return "—";
-        return utc.atOffset(ZoneOffset.UTC).atZoneSameInstant(ZoneId.of(appTz)).format(fmt());
+    private static final java.time.format.DateTimeFormatter CH_FMT = java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+    private String fmtLocal(LocalDateTime utcTs) {
+        if (utcTs == null) return "—";
+        return utcTs.atOffset(ZoneOffset.UTC).atZoneSameInstant(ZoneId.of(appTz)).format(CH_FMT);
     }
 
     // tick every second
@@ -79,27 +76,42 @@ public class OrderEscalationScheduler {
                 dirty = true;
                 try { webPush.broadcast("admin", "{\"title\":\"Order auto-cancelled\",\"body\":\"" + o.getId() + "\"}"); } catch (Exception ignored) {}
 
+                // Owner notification (no action → auto-cancel), include details
                 if (escalationEmail != null && !escalationEmail.isBlank()) {
-                    String body = """
-                            Order %s was automatically cancelled due to no action from staff.
-
-                            Customer:
+                    String customer = (o.getCustomerInfo() == null) ? "(no customer info)" :
+                            """
                             %s %s
                             %s
-                            %s
+                            %s %s
+                            %s %s
+                            """.formatted(
+                                    nullSafe(o.getCustomerInfo().getFirstName()),
+                                    nullSafe(o.getCustomerInfo().getLastName()),
+                                    nullSafe(o.getCustomerInfo().getEmail()),
+                                    o.getCustomerInfo().getAddress() != null ? nullSafe(o.getCustomerInfo().getAddress().getStreet()) : "",
+                                    o.getCustomerInfo().getAddress() != null ? nullSafe(o.getCustomerInfo().getAddress().getStreetNo()) : "",
+                                    o.getCustomerInfo().getAddress() != null ? nullSafe(o.getCustomerInfo().getAddress().getPlz()) : "",
+                                    o.getCustomerInfo().getAddress() != null ? nullSafe(o.getCustomerInfo().getAddress().getCity()) : ""
+                            ).trim();
 
+                    String body = """
+                            AUTO-CANCELLED — Menu order (no admin action in time)
+
+                            Order ID: %s
+                            Created:  %s
                             Requested: %s
-                            Total: CHF %s
+                            Total:    CHF %s
+
+                            Customer:
+                            %s
                             """.formatted(
                             o.getId(),
-                            Optional.ofNullable(o.getCustomerInfo()).map(CustomerInfo::getFirstName).orElse(""),
-                            Optional.ofNullable(o.getCustomerInfo()).map(CustomerInfo::getLastName).orElse(""),
-                            Optional.ofNullable(o.getCustomerInfo()).map(CustomerInfo::getEmail).orElse(""),
-                            Optional.ofNullable(o.getCustomerInfo()).map(CustomerInfo::getPhone).orElse(""),
-                            o.isAsap() ? "ASAP" : localFmt(o.getRequestedAt()),
-                            o.getTotalPrice()
+                            fmtLocal(o.getCreatedAt()),
+                            o.isAsap() ? "ASAP" : fmtLocal(o.getRequestedAt()),
+                            String.valueOf(o.getTotalPrice()),
+                            customer
                     );
-                    try { mailService.sendSimple(escalationEmail, "Auto-cancelled — no action on order " + o.getId(), body, null); } catch (Exception ignored) {}
+                    try { mailService.sendSimple(escalationEmail, "Auto-cancelled — Order " + o.getId(), body, null); } catch (Exception ignored) {}
                 }
             }
 
@@ -122,7 +134,7 @@ public class OrderEscalationScheduler {
                 dirty = true;
                 try { webPush.broadcast("admin", "{\"title\":\"Order waiting\",\"body\":\"" + o.getId() + "\"}"); } catch (Exception ignored) {}
                 if (escalationEmail != null && !escalationEmail.isBlank()) {
-                    try { mailService.sendSimple(escalationEmail, "Order waiting action", "Buffet " + o.getId() + " needs attention.", null); } catch (Exception ignored) {}
+                    try { mailService.sendSimple(escalationEmail, "Order waiting action", "Buffet order " + o.getId() + " needs attention.", null); } catch (Exception ignored) {}
                 }
             }
 
@@ -135,26 +147,40 @@ public class OrderEscalationScheduler {
                 try { webPush.broadcast("admin", "{\"title\":\"Order auto-cancelled\",\"body\":\"" + o.getId() + "\"}"); } catch (Exception ignored) {}
 
                 if (escalationEmail != null && !escalationEmail.isBlank()) {
-                    String body = """
-                            Buffet order %s was automatically cancelled due to no action from staff.
-
-                            Customer:
+                    String customer = (o.getCustomerInfo() == null) ? "(no customer info)" :
+                            """
                             %s %s
                             %s
-                            %s
+                            %s %s
+                            %s %s
+                            """.formatted(
+                                    nullSafe(o.getCustomerInfo().getFirstName()),
+                                    nullSafe(o.getCustomerInfo().getLastName()),
+                                    nullSafe(o.getCustomerInfo().getEmail()),
+                                    o.getCustomerInfo().getAddress() != null ? nullSafe(o.getCustomerInfo().getAddress().getStreet()) : "",
+                                    o.getCustomerInfo().getAddress() != null ? nullSafe(o.getCustomerInfo().getAddress().getStreetNo()) : "",
+                                    o.getCustomerInfo().getAddress() != null ? nullSafe(o.getCustomerInfo().getAddress().getPlz()) : "",
+                                    o.getCustomerInfo().getAddress() != null ? nullSafe(o.getCustomerInfo().getAddress().getCity()) : ""
+                            ).trim();
 
+                    String body = """
+                            AUTO-CANCELLED — Buffet order (no admin action in time)
+
+                            Order ID: %s
+                            Created:  %s
                             Requested: %s
-                            Total: CHF %s
+                            Total:    CHF %s
+
+                            Customer:
+                            %s
                             """.formatted(
                             o.getId(),
-                            Optional.ofNullable(o.getCustomerInfo()).map(CustomerInfo::getFirstName).orElse(""),
-                            Optional.ofNullable(o.getCustomerInfo()).map(CustomerInfo::getLastName).orElse(""),
-                            Optional.ofNullable(o.getCustomerInfo()).map(CustomerInfo::getEmail).orElse(""),
-                            Optional.ofNullable(o.getCustomerInfo()).map(CustomerInfo::getPhone).orElse(""),
-                            o.isAsap() ? "ASAP" : localFmt(o.getRequestedAt()),
-                            o.getTotalPrice()
+                            fmtLocal(o.getCreatedAt()),
+                            o.isAsap() ? "ASAP" : fmtLocal(o.getRequestedAt()),
+                            String.valueOf(o.getTotalPrice()),
+                            customer
                     );
-                    try { mailService.sendSimple(escalationEmail, "Auto-cancelled — no action on buffet " + o.getId(), body, null); } catch (Exception ignored) {}
+                    try { mailService.sendSimple(escalationEmail, "Auto-cancelled — Buffet " + o.getId(), body, null); } catch (Exception ignored) {}
                 }
             }
 
@@ -190,30 +216,44 @@ public class OrderEscalationScheduler {
                 try { webPush.broadcast("admin", "{\"title\":\"Reservation auto-cancelled\",\"body\":\"" + r.getId() + "\"}"); } catch (Exception ignored) {}
 
                 if (escalationEmail != null && !escalationEmail.isBlank()) {
-                    String body = """
-                            Reservation %s was automatically cancelled due to no action from staff.
-
-                            Customer:
+                    String customer = (r.getCustomerInfo() == null) ? "(no customer info)" :
+                            """
                             %s %s
                             %s
-                            %s
+                            %s %s
+                            %s %s
+                            """.formatted(
+                                    nullSafe(r.getCustomerInfo().getFirstName()),
+                                    nullSafe(r.getCustomerInfo().getLastName()),
+                                    nullSafe(r.getCustomerInfo().getEmail()),
+                                    r.getCustomerInfo().getAddress() != null ? nullSafe(r.getCustomerInfo().getAddress().getStreet()) : "",
+                                    r.getCustomerInfo().getAddress() != null ? nullSafe(r.getCustomerInfo().getAddress().getStreetNo()) : "",
+                                    r.getCustomerInfo().getAddress() != null ? nullSafe(r.getCustomerInfo().getAddress().getPlz()) : "",
+                                    r.getCustomerInfo().getAddress() != null ? nullSafe(r.getCustomerInfo().getAddress().getCity()) : ""
+                            ).trim();
 
-                            Requested time: %s
-                            Guests: %s
+                    String body = """
+                            AUTO-CANCELLED — Reservation (no admin action in time)
+
+                            Reservation ID: %s
+                            Created:        %s
+                            Reserved time:  %s
+
+                            Customer:
+                            %s
                             """.formatted(
                             r.getId(),
-                            Optional.ofNullable(r.getCustomerInfo()).map(CustomerInfo::getFirstName).orElse(""),
-                            Optional.ofNullable(r.getCustomerInfo()).map(CustomerInfo::getLastName).orElse(""),
-                            Optional.ofNullable(r.getCustomerInfo()).map(CustomerInfo::getEmail).orElse(""),
-                            Optional.ofNullable(r.getCustomerInfo()).map(CustomerInfo::getPhone).orElse(""),
-                            localFmt(r.getReservationDateTime()),
-                            Optional.ofNullable(r.getNumberOfPeople()).map(Object::toString).orElse("—")
+                            fmtLocal(r.getCreatedAt()),
+                            fmtLocal(r.getReservationDateTime()),
+                            customer
                     );
-                    try { mailService.sendSimple(escalationEmail, "Auto-cancelled — no action on reservation " + r.getId(), body, null); } catch (Exception ignored) {}
+                    try { mailService.sendSimple(escalationEmail, "Auto-cancelled — Reservation " + r.getId(), body, null); } catch (Exception ignored) {}
                 }
             }
 
             if (dirty) reservationRepo.save(r);
         });
     }
+
+    private static String nullSafe(String s) { return s == null ? "" : s; }
 }

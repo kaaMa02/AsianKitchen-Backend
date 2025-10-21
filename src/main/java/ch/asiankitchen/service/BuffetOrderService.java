@@ -1,3 +1,4 @@
+// backend/src/main/java/ch/asiankitchen/service/BuffetOrderService.java
 package ch.asiankitchen.service;
 
 import ch.asiankitchen.dto.BuffetOrderReadDTO;
@@ -55,7 +56,6 @@ public class BuffetOrderService {
     @Value("${app.timezone:Europe/Zurich}")
     private String appTz;
 
-    /* ---------- time utils ---------- */
     private DateTimeFormatter fmt() { return DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"); }
     private String localFmt(LocalDateTime utc) {
         if (utc == null) return "—";
@@ -131,14 +131,12 @@ public class BuffetOrderService {
     @Transactional(readOnly = true)
     public List<BuffetOrderReadDTO> listAllVisibleForAdmin() {
         var statuses = List.of(PaymentStatus.SUCCEEDED, PaymentStatus.NOT_REQUIRED);
-        return repo.findAdminVisibleWithItems(statuses)
-                .stream().map(BuffetOrderReadDTO::fromEntity).toList();
+        return repo.findAdminVisibleWithItems(statuses).stream().map(BuffetOrderReadDTO::fromEntity).toList();
     }
 
     @Transactional
     public BuffetOrderReadDTO updateStatus(UUID id, OrderStatus status) {
-        var order = repo.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("BuffetOrder", id));
+        var order = repo.findById(id).orElseThrow(() -> new ResourceNotFoundException("BuffetOrder", id));
         order.setStatus(status);
         return BuffetOrderReadDTO.fromEntity(repo.save(order));
     }
@@ -160,9 +158,7 @@ public class BuffetOrderService {
                 .formatted(order.getId(), UriUtils.encode(to, StandardCharsets.UTF_8));
 
         String placedLocal = localFmt(order.getCreatedAt());
-        String deliverLocal = order.isAsap()
-                ? "ASAP"
-                : localFmt(order.getCommittedReadyAt());
+        String deliverLocal = order.isAsap() ? "ASAP" : localFmt(order.getCommittedReadyAt());
 
         String subject = "Your buffet order at Asian Kitchen";
         String body = """
@@ -197,8 +193,8 @@ public class BuffetOrderService {
     private record Discount(BigDecimal discountedItems, BigDecimal amount, BigDecimal percent) {}
 
     private Discount discountForBuffet(BigDecimal itemsSubtotal) {
-        var active = discountService.resolveActive(); // never null
-        BigDecimal pct = active.percentBuffet();      // never null
+        var active = discountService.resolveActive();
+        BigDecimal pct = active.percentBuffet();
         BigDecimal rate = pct.divide(new BigDecimal("100"), 6, RoundingMode.HALF_UP);
         BigDecimal discount = itemsSubtotal.multiply(rate).setScale(2, RoundingMode.HALF_UP);
         BigDecimal discounted = itemsSubtotal.subtract(discount).max(BigDecimal.ZERO);

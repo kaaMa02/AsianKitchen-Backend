@@ -1,3 +1,4 @@
+// backend/src/main/java/ch/asiankitchen/controller/admin/AdminOrdersController.java
 package ch.asiankitchen.controller.admin;
 
 import ch.asiankitchen.dto.*;
@@ -91,7 +92,6 @@ public class AdminOrdersController {
                         .build())
                 .build()));
 
-        // sort newest first
         out.sort(Comparator.comparing(NewOrderCardDTO::getCreatedAt).reversed());
         return out;
     }
@@ -104,13 +104,17 @@ public class AdminOrdersController {
     }
 
     // 3) Confirm
-    public record ConfirmBody(boolean print, Integer extraMinutes) {}
+    public record ConfirmBody(Boolean print, Integer extraMinutes) {}
+
     @PostMapping("/{kind}-orders/{id}/confirm")
-    public ResponseEntity<Void> confirm(@PathVariable String kind, @PathVariable UUID id, @RequestBody ConfirmBody body) {
-        if (body.extraMinutes != null && body.extraMinutes >= 0) {
-            workflow.patchExtraMinutes(kind, id, body.extraMinutes);
-        }
-        workflow.confirmOrder(kind, id, body.print);
+    public ResponseEntity<Void> confirm(
+            @PathVariable String kind,
+            @PathVariable UUID id,
+            @RequestBody ConfirmBody body) {
+
+        // Single call handles both confirm and optional inline +minutes
+        workflow.confirmOrder(kind, id, body.extraMinutes(), Boolean.TRUE.equals(body.print()));
+
         return ResponseEntity.ok().build();
     }
 
@@ -122,7 +126,7 @@ public class AdminOrdersController {
         return ResponseEntity.ok().build();
     }
 
-    // 5) Patch timing (ASAP extra minutes)
+    // 5) Patch timing (legacy path; UI now sends inline via confirm)
     @PatchMapping("/{kind}-orders/{id}/timing")
     public ResponseEntity<Void> timing(@PathVariable String kind, @PathVariable UUID id, @RequestBody OrderTimingPatchDTO body) {
         if (body.getAdminExtraMinutes() != null) {

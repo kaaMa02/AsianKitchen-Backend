@@ -1,3 +1,4 @@
+// backend/src/main/java/ch/asiankitchen/service/CustomerOrderService.java
 package ch.asiankitchen.service;
 
 import ch.asiankitchen.dto.CustomerOrderReadDTO;
@@ -57,11 +58,7 @@ public class CustomerOrderService {
     @Value("${app.timezone:Europe/Zurich}")
     private String appTz;
 
-    /* ---------- time utils ---------- */
-    private DateTimeFormatter fmt() {
-        return DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
-    }
-
+    private DateTimeFormatter fmt() { return DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"); }
     private String localFmt(LocalDateTime utc) {
         if (utc == null) return "—";
         return utc.atOffset(ZoneOffset.UTC).atZoneSameInstant(ZoneId.of(appTz)).format(fmt());
@@ -77,19 +74,14 @@ public class CustomerOrderService {
         }
 
         order.getOrderItems().forEach(oi -> {
-            if (oi.getQuantity() <= 0) {
-                throw new IllegalArgumentException("Each item must have a quantity of at least 1.");
-            }
+            if (oi.getQuantity() <= 0) throw new IllegalArgumentException("Each item must have a quantity of at least 1.");
             UUID id = oi.getMenuItem().getId();
             MenuItem mi = menuItemRepo.findById(id)
                     .orElseThrow(() -> new ResourceNotFoundException("MenuItem", id));
-
             if (!mi.isAvailable()) {
-                String itemName = Optional.ofNullable(mi.getFoodItem())
-                        .map(FoodItem::getName).orElse("Item " + mi.getId());
+                String itemName = Optional.ofNullable(mi.getFoodItem()).map(FoodItem::getName).orElse("Item " + mi.getId());
                 throw new IllegalArgumentException("Menu item not available: " + itemName);
             }
-
             oi.setMenuItem(mi);
             oi.setCustomerOrder(order);
         });
@@ -125,7 +117,6 @@ public class CustomerOrderService {
         }
 
         CustomerOrder saved = repo.save(order);
-
         workflow.applyInitialTiming(saved);
         saved = repo.save(saved);
 
@@ -133,14 +124,10 @@ public class CustomerOrderService {
             try {
                 webPushService.broadcast("admin",
                         """
-                                {"title":"New Order (Menu)","body":"%s order %s","url":"/admin/orders"}
-                                """.formatted(saved.getOrderType(), saved.getId()));
-            } catch (Throwable ignored) {
-            }
-            try {
-                sendCustomerConfirmationWithTrackLink(saved);
-            } catch (Throwable ignored) {
-            }
+                        {"title":"New Order (Menu)","body":"%s order %s","url":"/admin/orders"}
+                        """.formatted(saved.getOrderType(), saved.getId()));
+            } catch (Throwable ignored) {}
+            try { sendCustomerConfirmationWithTrackLink(saved); } catch (Throwable ignored) {}
         }
 
         return CustomerOrderReadDTO.fromEntity(saved);
@@ -185,16 +172,11 @@ public class CustomerOrderService {
 
     @Transactional(readOnly = true)
     public List<CustomerOrderReadDTO> listAllVisibleForAdmin() {
-        var statuses = List.of(
-                PaymentStatus.SUCCEEDED,
-                PaymentStatus.NOT_REQUIRED);
-        return repo.findAdminVisibleWithItems(statuses)
-                .stream().map(CustomerOrderReadDTO::fromEntity).toList();
+        var statuses = List.of(PaymentStatus.SUCCEEDED, PaymentStatus.NOT_REQUIRED);
+        return repo.findAdminVisibleWithItems(statuses).stream().map(CustomerOrderReadDTO::fromEntity).toList();
     }
 
-    /**
-     * Send when (a) non-card order created, or (b) Stripe webhook success for card.
-     */
+    /** Send when (a) non-card order created, or (b) Stripe webhook success for card. */
     public void sendCustomerConfirmationWithTrackLink(CustomerOrder order) {
         final String to = order.getCustomerInfo() != null ? order.getCustomerInfo().getEmail() : null;
         if (to == null || to.isBlank()) return;
@@ -203,25 +185,23 @@ public class CustomerOrderService {
                 .formatted(order.getId(), UriUtils.encode(to, StandardCharsets.UTF_8));
 
         String placedLocal = localFmt(order.getCreatedAt());
-        String deliverLocal = order.isAsap()
-                ? "ASAP"
-                : localFmt(order.getCommittedReadyAt());
+        String deliverLocal = order.isAsap() ? "ASAP" : localFmt(order.getCommittedReadyAt());
 
         String subject = "Your order at Asian Kitchen";
         String body = """
                 Hi %s,
-                
+
                 Thanks for your %s!
-                
+
                 Placed:  %s
                 Deliver: %s
-                
+
                 Track your order:
                 %s
-                
+
                 Order ID: %s
                 Total: CHF %s
-                
+
                 — Asian Kitchen
                 """.formatted(
                 Optional.ofNullable(order.getCustomerInfo()).map(CustomerInfo::getFirstName).orElse(""),
@@ -237,8 +217,7 @@ public class CustomerOrderService {
     }
 
     /* ---------------- helpers ---------------- */
-    private record Discount(BigDecimal discountedItems, BigDecimal amount, BigDecimal percent) {
-    }
+    private record Discount(BigDecimal discountedItems, BigDecimal amount, BigDecimal percent) {}
 
     private Discount discountForMenu(BigDecimal itemsSubtotal) {
         var active = discountService.resolveActive(); // never null

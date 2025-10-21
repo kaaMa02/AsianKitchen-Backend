@@ -1,33 +1,21 @@
+// backend/src/main/java/ch/asiankitchen/service/OrderWorkflowService.java
 package ch.asiankitchen.service;
 
-import ch.asiankitchen.model.BuffetOrder;
-import ch.asiankitchen.model.CustomerOrder;
-import ch.asiankitchen.model.FoodItem;
-import ch.asiankitchen.model.OrderStatus;
-import ch.asiankitchen.model.PaymentStatus;
-import ch.asiankitchen.model.ReservationStatus;
-import ch.asiankitchen.repository.BuffetOrderRepository;
-import ch.asiankitchen.repository.CustomerOrderRepository;
-import ch.asiankitchen.repository.ReservationRepository;
+import ch.asiankitchen.model.*;
+import ch.asiankitchen.repository.*;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.util.UriUtils;
 
-import java.nio.charset.StandardCharsets;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
-import java.time.ZoneOffset;
+import java.time.*;
 import java.time.format.DateTimeFormatter;
 import java.util.Optional;
 import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
-@Slf4j
 public class OrderWorkflowService {
 
     private final CustomerOrderRepository customerOrderRepo;
@@ -52,47 +40,23 @@ public class OrderWorkflowService {
     @Value("${app.timezone:Europe/Zurich}")
     private String appTz;
 
-    /** Where to notify the co-owner/escalation recipient (refunds, auto-cancels, etc.). */
-    @Value("${app.mail.to.escalation:}")
-    private String escalationEmail;
+    @Value("${app.mail.to.owner:}")
+    private String otherOwnerEmail;
 
-    /* ------------------------------ time helpers ------------------------------ */
-
-    private DateTimeFormatter fmt() {
-        return DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
-    }
-
-    /** Convert a UTC LocalDateTime -> formatted App TZ string. */
-    private String localFmt(@Nullable LocalDateTime utc) {
-        if (utc == null) return "—";
-        return utc.atOffset(ZoneOffset.UTC)
-                .atZoneSameInstant(ZoneId.of(appTz))
-                .format(fmt());
-    }
-
-    /** Convert a local (app TZ) LocalDateTime -> UTC LocalDateTime. */
-    private LocalDateTime toUtc(@Nullable LocalDateTime local) {
+    private LocalDateTime toUtc(LocalDateTime local) {
         if (local == null) return null;
         return local.atZone(ZoneId.of(appTz))
                 .withZoneSameInstant(ZoneOffset.UTC)
                 .toLocalDateTime();
     }
 
-    private int etaMinutes(CustomerOrder o) {
-        int minPrep = Optional.ofNullable(o.getMinPrepMinutes()).orElse(defaultMinPrep);
-        int extra = Optional.ofNullable(o.getAdminExtraMinutes()).orElse(0);
-        return Math.max(0, minPrep + extra);
+    private static final DateTimeFormatter CH_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+    private String fmtLocal(LocalDateTime utcTs) {
+        if (utcTs == null) return "—";
+        return utcTs.atOffset(ZoneOffset.UTC).atZoneSameInstant(ZoneId.of(appTz)).format(CH_FMT);
     }
 
-    private int etaMinutes(BuffetOrder o) {
-        int minPrep = Optional.ofNullable(o.getMinPrepMinutes()).orElse(defaultMinPrep);
-        int extra = Optional.ofNullable(o.getAdminExtraMinutes()).orElse(0);
-        return Math.max(0, minPrep + extra);
-    }
-
-    /* ------------------------------ initial timing ------------------------------ */
-
-    // compute committed times on creation (and the alert window)
+    // ───── initial timing on creation (and 60s alert window placeholder) ─────
     public void applyInitialTiming(CustomerOrder o) {
         if (o.getMinPrepMinutes() == null || o.getMinPrepMinutes() <= 0) o.setMinPrepMinutes(defaultMinPrep);
         if (o.getAdminExtraMinutes() == null) o.setAdminExtraMinutes(0);
@@ -126,8 +90,7 @@ public class OrderWorkflowService {
         o.setAutoCancelAt(basis.plusMinutes(autocancelMinutes));
     }
 
-    /* ------------------------------ admin interactions ------------------------------ */
-
+    // ───── admin interactions ─────
     @Transactional
     public void markSeen(String kind, UUID id) {
         switch (kind) {
@@ -147,9 +110,6 @@ public class OrderWorkflowService {
         }
     }
 
-    /**
-     * Update admin extra minutes for ASAP NEW orders (menu/buffet). Recomputes committedReadyAt.
-     */
     @Transactional
     public void patchExtraMinutes(String kind, UUID id, int extra) {
         final int add = Math.max(0, extra);
@@ -157,8 +117,7 @@ public class OrderWorkflowService {
             customerOrderRepo.findById(id).ifPresent(o -> {
                 if (o.isAsap() && o.getStatus() == OrderStatus.NEW) {
                     o.setAdminExtraMinutes(add);
-                    int minPrep = Optional.ofNullable(o.getMinPrepMinutes()).orElse(defaultMinPrep);
-                    o.setCommittedReadyAt(o.getCreatedAt().plusMinutes(minPrep + add));
+                    o.setCommittedReadyAt(o.getCreatedAt().plusMinutes(o.getMinPrepMinutes() + add));
                     customerOrderRepo.save(o);
                 }
             });
@@ -166,8 +125,7 @@ public class OrderWorkflowService {
             buffetOrderRepo.findById(id).ifPresent(o -> {
                 if (o.isAsap() && o.getStatus() == OrderStatus.NEW) {
                     o.setAdminExtraMinutes(add);
-                    int minPrep = Optional.ofNullable(o.getMinPrepMinutes()).orElse(defaultMinPrep);
-                    o.setCommittedReadyAt(o.getCreatedAt().plusMinutes(minPrep + add));
+                    o.setCommittedReadyAt(o.getCreatedAt().plusMinutes(o.getMinPrepMinutes() + add));
                     buffetOrderRepo.save(o);
                 }
             });
@@ -181,108 +139,49 @@ public class OrderWorkflowService {
         }
     }
 
-    /**
-     * Confirm order/reservation. For ASAP menu/buffet: applies extraMinutes before confirming,
-     * recomputes committedReadyAt, then emails customer with ETA and a tracking link.
-     */
+    // Back-compat: older callers
+    @Transactional
+    public void confirmOrder(String kind, UUID id, boolean print) {
+        confirmOrder(kind, id, null, print);
+    }
+
+    // Preferred: allow inline extraMinutes (from UI bubbles) and optional print flag
     @Transactional
     public void confirmOrder(String kind, UUID id, @Nullable Integer extraMinutes, boolean print) {
         if ("menu".equals(kind)) {
             customerOrderRepo.findById(id).ifPresent(o -> {
-                // apply extra minutes first (ASAP + NEW)
-                if (o.isAsap() && o.getStatus() == OrderStatus.NEW && extraMinutes != null && extraMinutes >= 0) {
-                    o.setAdminExtraMinutes(extraMinutes);
-                    int minPrep = Optional.ofNullable(o.getMinPrepMinutes()).orElse(defaultMinPrep);
-                    o.setCommittedReadyAt(o.getCreatedAt().plusMinutes(minPrep + extraMinutes));
+                boolean adjusted = false;
+                if (extraMinutes != null && o.isAsap() && o.getStatus() == OrderStatus.NEW) {
+                    int add = Math.max(0, extraMinutes);
+                    o.setAdminExtraMinutes(add);
+                    o.setCommittedReadyAt(o.getCreatedAt().plusMinutes(o.getMinPrepMinutes() + add));
+                    adjusted = true;
                 }
                 o.setStatus(OrderStatus.CONFIRMED);
                 customerOrderRepo.save(o);
 
-                // notify admins
                 try { webPushService.broadcast("admin", "{\"title\":\"Order confirmed\",\"body\":\"" + o.getId() + "\"}"); } catch (Exception ignored){}
 
-                // customer email: ETA + approx local time + track link
-                try {
-                    final String to = o.getCustomerInfo() != null ? o.getCustomerInfo().getEmail() : null;
-                    if (to != null && !to.isBlank()) {
-                        String trackUrl = "https://asian-kitchen.online/track?orderId=%s&email=%s"
-                                .formatted(o.getId(), UriUtils.encode(to, StandardCharsets.UTF_8));
+                // Email customer: "approx. XX minutes" + tracking link
+                try { sendEtaEmailAfterConfirm(o); } catch (Exception ignored){}
 
-                        int eta = etaMinutes(o);
-                        String approxTime = localFmt(o.getCommittedReadyAt());
-
-                        String subject = "Your order is confirmed — ETA ~" + eta + " min";
-                        String body = """
-                                Hi %s,
-
-                                Your order is confirmed. We will deliver in approximately %d minutes (around %s).
-
-                                Track your order:
-                                %s
-
-                                Order ID: %s
-                                Total: CHF %s
-
-                                — Asian Kitchen
-                                """.formatted(
-                                Optional.ofNullable(o.getCustomerInfo().getFirstName()).orElse(""),
-                                eta, approxTime, trackUrl, o.getId(), o.getTotalPrice()
-                        );
-                        mailService.sendSimple(to, subject, body, null);
-                    }
-                } catch (Exception e) {
-                    log.warn("MAIL: failed sending confirm email for order {}", o.getId(), e);
-                }
-
-                if (print) {
-                    // optional: integrate printer hook here if needed
-                }
+                if (print) { /* optional: integrate printer hook if you keep server-side printing */ }
             });
         } else if ("buffet".equals(kind)) {
             buffetOrderRepo.findById(id).ifPresent(o -> {
-                if (o.isAsap() && o.getStatus() == OrderStatus.NEW && extraMinutes != null && extraMinutes >= 0) {
-                    o.setAdminExtraMinutes(extraMinutes);
-                    int minPrep = Optional.ofNullable(o.getMinPrepMinutes()).orElse(defaultMinPrep);
-                    o.setCommittedReadyAt(o.getCreatedAt().plusMinutes(minPrep + extraMinutes));
+                if (extraMinutes != null && o.isAsap() && o.getStatus() == OrderStatus.NEW) {
+                    int add = Math.max(0, extraMinutes);
+                    o.setAdminExtraMinutes(add);
+                    o.setCommittedReadyAt(o.getCreatedAt().plusMinutes(o.getMinPrepMinutes() + add));
                 }
                 o.setStatus(OrderStatus.CONFIRMED);
                 buffetOrderRepo.save(o);
-
                 try { webPushService.broadcast("admin", "{\"title\":\"Buffet confirmed\",\"body\":\"" + o.getId() + "\"}"); } catch (Exception ignored){}
 
-                try {
-                    final String to = o.getCustomerInfo() != null ? o.getCustomerInfo().getEmail() : null;
-                    if (to != null && !to.isBlank()) {
-                        String trackUrl = "https://asian-kitchen.online/track-buffet?orderId=%s&email=%s"
-                                .formatted(o.getId(), UriUtils.encode(to, StandardCharsets.UTF_8));
-
-                        int eta = etaMinutes(o);
-                        String approxTime = localFmt(o.getCommittedReadyAt());
-
-                        String subject = "Your buffet order is confirmed — ETA ~" + eta + " min";
-                        String body = """
-                                Hi %s,
-
-                                Your buffet order is confirmed. We will deliver in approximately %d minutes (around %s).
-
-                                Track your order:
-                                %s
-
-                                Order ID: %s
-                                Total: CHF %s
-
-                                — Asian Kitchen
-                                """.formatted(
-                                Optional.ofNullable(o.getCustomerInfo().getFirstName()).orElse(""),
-                                eta, approxTime, trackUrl, o.getId(), o.getTotalPrice()
-                        );
-                        mailService.sendSimple(to, subject, body, null);
-                    }
-                } catch (Exception e) {
-                    log.warn("MAIL: failed sending confirm email for buffet {}", o.getId(), e);
-                }
+                try { sendEtaEmailAfterConfirm(o); } catch (Exception ignored){}
             });
         } else if ("reservation".equals(kind)) {
+            // reservations: confirmation happens via patchExtraMinutes() path above
             reservationRepo.findById(id).ifPresent(r -> {
                 r.setStatus(ReservationStatus.CONFIRMED);
                 reservationRepo.save(r);
@@ -292,10 +191,12 @@ public class OrderWorkflowService {
         }
     }
 
-    /**
-     * Cancel entities. If a paid (Stripe SUCCEEDED) order is cancelled,
-     * email the co-owner with refund details and customer info.
-     */
+    // Overload without print (most callers)
+    @Transactional
+    public void confirmOrder(String kind, UUID id, @Nullable Integer extraMinutes) {
+        confirmOrder(kind, id, extraMinutes, false);
+    }
+
     @Transactional
     public void cancelOrder(String kind, UUID id, String reason, boolean refundIfPaid) {
         if ("menu".equals(kind)) {
@@ -303,85 +204,159 @@ public class OrderWorkflowService {
                 o.setStatus(OrderStatus.CANCELLED);
                 customerOrderRepo.save(o);
 
-                // Optional: notify customer here if desired
-
-                // Refund notification to co-owner for paid orders
-                if (o.getPaymentStatus() == PaymentStatus.SUCCEEDED && escalationEmailConfigured()) {
-                    StringBuilder sb = new StringBuilder();
-                    sb.append("Customer (paid via Stripe):\n");
-                    if (o.getCustomerInfo() != null) {
-                        sb.append(Optional.ofNullable(o.getCustomerInfo().getFirstName()).orElse("")).append(" ")
-                                .append(Optional.ofNullable(o.getCustomerInfo().getLastName()).orElse("")).append("\n");
-                        sb.append(Optional.ofNullable(o.getCustomerInfo().getEmail()).orElse("")).append("\n");
-                        sb.append(Optional.ofNullable(o.getCustomerInfo().getPhone()).orElse("")).append("\n");
-                    }
-                    sb.append("\nOrder ID: ").append(o.getId()).append("\n");
-                    sb.append("Total: CHF ").append(o.getTotalPrice()).append("\n");
-                    sb.append("Reason: ").append(reason == null ? "" : reason).append("\n");
-
-                    sb.append("\nItems:\n");
-                    if (o.getOrderItems() != null) {
-                        o.getOrderItems().forEach(it -> {
-                            String nm = Optional.ofNullable(it.getMenuItem())
-                                    .map(mi -> Optional.ofNullable(mi.getFoodItem()).map(FoodItem::getName).orElse(""))
-                                    .filter(s -> !s.isBlank())
-                                    .orElse(Optional.ofNullable(it.getMenuItem().getFoodItem().getName()).orElse("Item"));
-                            sb.append(" - ").append(nm).append(" x ").append(it.getQuantity()).append("\n");
-                        });
-                    }
-
-                    try {
-                        mailService.sendSimple(escalationEmail,
-                                "Refund needed — cancelled paid order " + o.getId(),
-                                sb.toString(),
-                                null);
-                    } catch (Exception e) {
-                        log.warn("MAIL: failed sending refund email for order {}", o.getId(), e);
-                    }
+                // Notify owner if paid via Stripe (SUCCEEDED) → manual refund needed
+                if (o.getPaymentStatus() == PaymentStatus.SUCCEEDED) {
+                    notifyOwnerRefundNeeded("Menu", o.getId(), o.getCustomerInfo(), o, reason);
                 }
+
+                try { /* optionally email customer */ } catch (Exception ignored){}
             });
         } else if ("buffet".equals(kind)) {
             buffetOrderRepo.findById(id).ifPresent(o -> {
                 o.setStatus(OrderStatus.CANCELLED);
                 buffetOrderRepo.save(o);
 
-                if (o.getPaymentStatus() == PaymentStatus.SUCCEEDED && escalationEmailConfigured()) {
-                    String body = """
-                            Customer (paid via Stripe):
-                            %s %s
-                            %s
-                            %s
-
-                            Buffet Order ID: %s
-                            Total: CHF %s
-                            Reason: %s
-                            """.formatted(
-                            Optional.ofNullable(o.getCustomerInfo()).map(ci -> Optional.ofNullable(ci.getFirstName()).orElse("")).orElse(""),
-                            Optional.ofNullable(o.getCustomerInfo()).map(ci -> Optional.ofNullable(ci.getLastName()).orElse("")).orElse(""),
-                            Optional.ofNullable(o.getCustomerInfo()).map(ci -> Optional.ofNullable(ci.getEmail()).orElse("")).orElse(""),
-                            Optional.ofNullable(o.getCustomerInfo()).map(ci -> Optional.ofNullable(ci.getPhone()).orElse("")).orElse(""),
-                            o.getId(), o.getTotalPrice(), reason == null ? "" : reason
-                    );
-                    try {
-                        mailService.sendSimple(escalationEmail,
-                                "Refund needed — cancelled paid buffet " + o.getId(),
-                                body,
-                                null);
-                    } catch (Exception e) {
-                        log.warn("MAIL: failed sending refund email for buffet {}", o.getId(), e);
-                    }
+                if (o.getPaymentStatus() == PaymentStatus.SUCCEEDED) {
+                    notifyOwnerRefundNeeded("Buffet", o.getId(), o.getCustomerInfo(), o, reason);
                 }
+
+                try { /* optionally email customer */ } catch (Exception ignored){}
             });
         } else if ("reservation".equals(kind)) {
             reservationRepo.findById(id).ifPresent(r -> {
                 r.setStatus(ReservationStatus.CANCELLED);
                 reservationRepo.save(r);
-                try { reservationEmailService.sendRejectionToCustomer(r); } catch (Exception ignored) {}
+                try { reservationEmailService.sendRejectionToCustomer(r); } catch (Exception ignored){}
             });
         }
     }
 
-    private boolean escalationEmailConfigured() {
-        return escalationEmail != null && !escalationEmail.isBlank();
+    // ───── helpers ─────
+
+    private long minutesUntil(LocalDateTime utcTarget) {
+        if (utcTarget == null) return 0;
+        var nowUtc = LocalDateTime.now(ZoneOffset.UTC);
+        return Math.max(0, Duration.between(nowUtc, utcTarget).toMinutes());
+    }
+
+    private void sendEtaEmailAfterConfirm(CustomerOrder o) {
+        String to = Optional.ofNullable(o.getCustomerInfo()).map(CustomerInfo::getEmail).orElse(null);
+        if (to == null || to.isBlank()) return;
+
+        long etaMin;
+        if (o.isAsap()) {
+            int base = Optional.ofNullable(o.getMinPrepMinutes()).orElse(defaultMinPrep);
+            int extra = Optional.ofNullable(o.getAdminExtraMinutes()).orElse(0);
+            etaMin = base + extra;
+        } else {
+            etaMin = minutesUntil(o.getCommittedReadyAt());
+        }
+
+        String trackUrl = "https://asian-kitchen.online/track?orderId=%s&email=%s"
+                .formatted(o.getId(), o.getCustomerInfo().getEmail());
+
+        String subject = "Order confirmed — Asian Kitchen";
+        String body = """
+                Hi %s,
+
+                The order will be delivered approx. %d minutes.
+
+                Track your order:
+                %s
+
+                Order ID: %s
+                Placed:   %s
+                Deliver:  %s
+                Total:    CHF %s
+
+                — Asian Kitchen
+                """.formatted(
+                Optional.ofNullable(o.getCustomerInfo().getFirstName()).orElse(""),
+                etaMin,
+                trackUrl,
+                o.getId(),
+                fmtLocal(o.getCreatedAt()),
+                o.isAsap() ? "ASAP" : fmtLocal(o.getCommittedReadyAt()),
+                o.getTotalPrice()
+        );
+
+        mailService.sendSimple(to, subject, body, null);
+    }
+
+    private void sendEtaEmailAfterConfirm(BuffetOrder o) {
+        String to = Optional.ofNullable(o.getCustomerInfo()).map(CustomerInfo::getEmail).orElse(null);
+        if (to == null || to.isBlank()) return;
+
+        long etaMin;
+        if (o.isAsap()) {
+            int base = Optional.ofNullable(o.getMinPrepMinutes()).orElse(defaultMinPrep);
+            int extra = Optional.ofNullable(o.getAdminExtraMinutes()).orElse(0);
+            etaMin = base + extra;
+        } else {
+            etaMin = minutesUntil(o.getCommittedReadyAt());
+        }
+
+        String trackUrl = "https://asian-kitchen.online/track-buffet?orderId=%s&email=%s"
+                .formatted(o.getId(), o.getCustomerInfo().getEmail());
+
+        String subject = "Buffet order confirmed — Asian Kitchen";
+        String body = """
+                Hi %s,
+
+                The order will be delivered approx. %d minutes.
+
+                Track your order:
+                %s
+
+                Order ID: %s
+                Placed:   %s
+                Deliver:  %s
+                Total:    CHF %s
+
+                — Asian Kitchen
+                """.formatted(
+                Optional.ofNullable(o.getCustomerInfo().getFirstName()).orElse(""),
+                etaMin,
+                trackUrl,
+                o.getId(),
+                fmtLocal(o.getCreatedAt()),
+                o.isAsap() ? "ASAP" : fmtLocal(o.getCommittedReadyAt()),
+                o.getTotalPrice()
+        );
+
+        mailService.sendSimple(to, subject, body, null);
+    }
+
+    private void notifyOwnerRefundNeeded(String kind, UUID id, CustomerInfo ci, Object orderLike, String reason) {
+        if (otherOwnerEmail == null || otherOwnerEmail.isBlank()) return;
+
+        String customerBlock = (ci == null) ? "(no customer info)" :
+                """
+                %s %s
+                %s
+                %s %s %s %s
+                """.formatted(
+                        Optional.ofNullable(ci.getFirstName()).orElse(""),
+                        Optional.ofNullable(ci.getLastName()).orElse(""),
+                        Optional.ofNullable(ci.getPhone()).orElse(""),
+                        ci.getAddress() != null ? Optional.ofNullable(ci.getAddress().getStreet()).orElse("") : "",
+                        ci.getAddress() != null ? Optional.ofNullable(ci.getAddress().getStreetNo()).orElse("") : "",
+                        ci.getAddress() != null ? Optional.ofNullable(ci.getAddress().getPlz()).orElse("") : "",
+                        ci.getAddress() != null ? Optional.ofNullable(ci.getAddress().getCity()).orElse("") : ""
+                ).trim();
+
+        String body = """
+                Order CANCELLED — paid via Stripe (manual refund needed)
+                
+                Kind:    %s
+                OrderID: %s
+                
+                Reason:  %s
+                
+                Customer:
+                %s
+                """.formatted(kind, id, Optional.ofNullable(reason).orElse("(none)"), customerBlock);
+
+        mailService.sendSimple(otherOwnerEmail, "Refund needed — " + kind + " " + id, body, null);
     }
 }

@@ -1,3 +1,4 @@
+// backend/src/main/java/ch/asiankitchen/service/ReservationService.java
 package ch.asiankitchen.service;
 
 import ch.asiankitchen.dto.*;
@@ -14,7 +15,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.*;
-import java.util.stream.*;
+import java.util.stream.Collectors;
 
 @Service
 public class ReservationService {
@@ -39,7 +40,6 @@ public class ReservationService {
     @Transactional
     public ReservationReadDTO create(ReservationWriteDTO dto) {
         var entity = dto.toEntity();
-        // 🔧 NEW: the date picker is local CH time — store as UTC
         entity.setReservationDateTime(toUtc(dto.getReservationDateTime()));
         var saved = repo.save(entity);
         emailService.sendNewReservationToRestaurant(saved);
@@ -96,8 +96,7 @@ public class ReservationService {
 
     @Transactional(readOnly = true)
     public List<ReservationReadDTO> listByStatus(ReservationStatus status) {
-        return repo.findAllByStatusOrderByCreatedAtDesc(status)
-                .stream()
+        return repo.findAllByStatusOrderByCreatedAtDesc(status).stream()
                 .map(ReservationReadDTO::fromEntity)
                 .toList();
     }
