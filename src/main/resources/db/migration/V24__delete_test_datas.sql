@@ -1,0 +1,3 @@
+SELECT id, user_id, first_name, last_name, email, phone, street, street_no, plz, city, order_type, special_instructions, status, total_price, created_at, deleted_at, payment_intent_id, payment_status, payment_method, items_subtotal_before_discount, discount_percent, discount_amount, items_subtotal_after_discount, vat_amount, delivery_fee, asap, requested_at, min_prep_minutes, admin_extra_minutes, committed_ready_at, auto_cancel_at, seen_at, escalated_at
+FROM public.orders
+WHERE first_name='Test';
