@@ -1,6 +1,7 @@
 package ch.asiankitchen.service;
 
-import ch.asiankitchen.dto.*;
+import ch.asiankitchen.dto.CustomerOrderReadDTO;
+import ch.asiankitchen.dto.CustomerOrderWriteDTO;
 import ch.asiankitchen.exception.ResourceNotFoundException;
 import ch.asiankitchen.model.*;
 import ch.asiankitchen.repository.CustomerOrderRepository;
@@ -13,6 +14,10 @@ import org.springframework.web.util.UriUtils;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -49,9 +54,22 @@ public class CustomerOrderService {
     @Value("${app.delivery.free-threshold-chf:100.00}")
     private BigDecimal freeDeliveryThresholdChf;
 
+    @Value("${app.timezone:Europe/Zurich}")
+    private String appTz;
+
+    /* ---------- time utils ---------- */
+    private DateTimeFormatter fmt() {
+        return DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+    }
+
+    private String localFmt(LocalDateTime utc) {
+        if (utc == null) return "—";
+        return utc.atOffset(ZoneOffset.UTC).atZoneSameInstant(ZoneId.of(appTz)).format(fmt());
+    }
+
     @Transactional
     public CustomerOrderReadDTO create(CustomerOrderWriteDTO dto) {
-        final CustomerOrder order = dto.toEntity();       // <-- final (captured by lambdas)
+        final CustomerOrder order = dto.toEntity();
         order.setStatus(OrderStatus.NEW);
 
         if (order.getOrderItems() == null || order.getOrderItems().isEmpty()) {
@@ -73,7 +91,7 @@ public class CustomerOrderService {
             }
 
             oi.setMenuItem(mi);
-            oi.setCustomerOrder(order); // safe: 'order' is final
+            oi.setCustomerOrder(order);
         });
 
         BigDecimal items = order.getOrderItems().stream()
@@ -106,10 +124,8 @@ public class CustomerOrderService {
             order.setPaymentStatus(PaymentStatus.NOT_REQUIRED);
         }
 
-        // Save → createdAt set by @PrePersist
         CustomerOrder saved = repo.save(order);
 
-        // Compute timing with a non-null createdAt, then persist again
         workflow.applyInitialTiming(saved);
         saved = repo.save(saved);
 
@@ -117,10 +133,14 @@ public class CustomerOrderService {
             try {
                 webPushService.broadcast("admin",
                         """
-                        {"title":"New Order (Menu)","body":"%s order %s","url":"/admin/orders"}
-                        """.formatted(saved.getOrderType(), saved.getId()));
-            } catch (Throwable ignored) {}
-            try { sendCustomerConfirmationWithTrackLink(saved); } catch (Throwable ignored) {}
+                                {"title":"New Order (Menu)","body":"%s order %s","url":"/admin/orders"}
+                                """.formatted(saved.getOrderType(), saved.getId()));
+            } catch (Throwable ignored) {
+            }
+            try {
+                sendCustomerConfirmationWithTrackLink(saved);
+            } catch (Throwable ignored) {
+            }
         }
 
         return CustomerOrderReadDTO.fromEntity(saved);
@@ -172,30 +192,42 @@ public class CustomerOrderService {
                 .stream().map(CustomerOrderReadDTO::fromEntity).toList();
     }
 
-    /** Send when (a) non-card order created, or (b) Stripe webhook success for card. */
+    /**
+     * Send when (a) non-card order created, or (b) Stripe webhook success for card.
+     */
     public void sendCustomerConfirmationWithTrackLink(CustomerOrder order) {
-        final String to = order.getCustomerInfo().getEmail();
+        final String to = order.getCustomerInfo() != null ? order.getCustomerInfo().getEmail() : null;
         if (to == null || to.isBlank()) return;
 
         String trackUrl = "https://asian-kitchen.online/track?orderId=%s&email=%s"
                 .formatted(order.getId(), UriUtils.encode(to, StandardCharsets.UTF_8));
 
+        String placedLocal = localFmt(order.getCreatedAt());
+        String deliverLocal = order.isAsap()
+                ? "ASAP"
+                : localFmt(order.getCommittedReadyAt());
+
         String subject = "Your order at Asian Kitchen";
         String body = """
                 Hi %s,
-
-                Thanks for your order! We have received your%s.
-
-                You can track your order here:
+                
+                Thanks for your %s!
+                
+                Placed:  %s
+                Deliver: %s
+                
+                Track your order:
                 %s
-
+                
                 Order ID: %s
                 Total: CHF %s
-
+                
                 — Asian Kitchen
                 """.formatted(
-                Optional.ofNullable(order.getCustomerInfo().getFirstName()).orElse(""),
-                order.getPaymentMethod() == PaymentMethod.CARD ? " payment" : " order",
+                Optional.ofNullable(order.getCustomerInfo()).map(CustomerInfo::getFirstName).orElse(""),
+                order.getPaymentMethod() == PaymentMethod.CARD ? "payment" : "order",
+                placedLocal,
+                deliverLocal,
                 trackUrl,
                 order.getId(),
                 order.getTotalPrice()
@@ -205,7 +237,8 @@ public class CustomerOrderService {
     }
 
     /* ---------------- helpers ---------------- */
-    private record Discount(BigDecimal discountedItems, BigDecimal amount, BigDecimal percent) {}
+    private record Discount(BigDecimal discountedItems, BigDecimal amount, BigDecimal percent) {
+    }
 
     private Discount discountForMenu(BigDecimal itemsSubtotal) {
         var active = discountService.resolveActive(); // never null
@@ -215,7 +248,6 @@ public class CustomerOrderService {
         BigDecimal discounted = itemsSubtotal.subtract(discount).max(BigDecimal.ZERO);
         return new Discount(discounted, discount, pct);
     }
-
 
     private BigDecimal calcVat(OrderType orderType, BigDecimal itemsAfterDiscount) {
         boolean taxable = (orderType == OrderType.TAKEAWAY || orderType == OrderType.DELIVERY);

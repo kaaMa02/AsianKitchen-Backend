@@ -13,6 +13,10 @@ import org.springframework.web.util.UriUtils;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -48,9 +52,19 @@ public class BuffetOrderService {
     @Value("${app.delivery.free-threshold-chf:100.00}")
     private BigDecimal freeDeliveryThresholdChf;
 
+    @Value("${app.timezone:Europe/Zurich}")
+    private String appTz;
+
+    /* ---------- time utils ---------- */
+    private DateTimeFormatter fmt() { return DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"); }
+    private String localFmt(LocalDateTime utc) {
+        if (utc == null) return "—";
+        return utc.atOffset(ZoneOffset.UTC).atZoneSameInstant(ZoneId.of(appTz)).format(fmt());
+    }
+
     @Transactional
     public BuffetOrderReadDTO create(BuffetOrderWriteDTO dto) {
-        final BuffetOrder order = dto.toEntity();  // final for safety
+        final BuffetOrder order = dto.toEntity();
         order.setStatus(OrderStatus.NEW);
 
         BigDecimal items = Optional.ofNullable(order.getTotalPrice())
@@ -139,19 +153,27 @@ public class BuffetOrderService {
 
     /** Send when (a) non-card buffet order created, or (b) Stripe webhook success for card buffet. */
     public void sendCustomerConfirmationWithTrackLink(BuffetOrder order) {
-        final String to = order.getCustomerInfo().getEmail();
+        final String to = order.getCustomerInfo() != null ? order.getCustomerInfo().getEmail() : null;
         if (to == null || to.isBlank()) return;
 
         String trackUrl = "https://asian-kitchen.online/track-buffet?orderId=%s&email=%s"
                 .formatted(order.getId(), UriUtils.encode(to, StandardCharsets.UTF_8));
 
+        String placedLocal = localFmt(order.getCreatedAt());
+        String deliverLocal = order.isAsap()
+                ? "ASAP"
+                : localFmt(order.getCommittedReadyAt());
+
         String subject = "Your buffet order at Asian Kitchen";
         String body = """
                 Hi %s,
 
-                Thanks for your order! We have received your%s.
+                Thanks for your %s!
 
-                You can track your order here:
+                Placed:  %s
+                Deliver: %s
+
+                Track your order:
                 %s
 
                 Order ID: %s
@@ -159,8 +181,10 @@ public class BuffetOrderService {
 
                 — Asian Kitchen
                 """.formatted(
-                Optional.ofNullable(order.getCustomerInfo().getFirstName()).orElse(""),
-                order.getPaymentMethod() == PaymentMethod.CARD ? " payment" : " order",
+                Optional.ofNullable(order.getCustomerInfo()).map(CustomerInfo::getFirstName).orElse(""),
+                order.getPaymentMethod() == PaymentMethod.CARD ? "payment" : "order",
+                placedLocal,
+                deliverLocal,
                 trackUrl,
                 order.getId(),
                 order.getTotalPrice()
@@ -180,7 +204,6 @@ public class BuffetOrderService {
         BigDecimal discounted = itemsSubtotal.subtract(discount).max(BigDecimal.ZERO);
         return new Discount(discounted, discount, pct);
     }
-
 
     private BigDecimal calcVat(OrderType orderType, BigDecimal itemsAfterDiscount) {
         boolean taxable = (orderType == OrderType.TAKEAWAY || orderType == OrderType.DELIVERY);
