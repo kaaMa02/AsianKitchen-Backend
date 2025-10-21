@@ -54,8 +54,12 @@ public class AuthController {
     @Value("${app.security.same-site:None}")
     private String sameSite;
 
-    @Value("${jwt.expiration-ms:3600000}")
-    private long jwtTtlMs;
+    // NEW: role-based lifetimes (seconds)
+    @Value("${jwt.user-validity-seconds:604800}")
+    private long userValiditySeconds;
+
+    @Value("${jwt.admin-validity-seconds:2592000}")
+    private long adminValiditySeconds;
 
     @PostMapping("/register")
     public ResponseEntity<UserReadDTO> register(@Valid @RequestBody RegisterRequestDTO dto) {
@@ -77,9 +81,13 @@ public class AuthController {
                     .map(GrantedAuthority::getAuthority)
                     .orElse("ROLE_CUSTOMER");
 
+            // create JWT with role-based expiry
             String token = jwtTokenProvider.createToken(req.getUsername(), role);
 
-            var cookie = buildAuthCookie(token, jwtTtlMs);
+            boolean isAdmin = role.contains("ADMIN");
+            long maxAgeSeconds = isAdmin ? adminValiditySeconds : userValiditySeconds;
+
+            var cookie = buildAuthCookie(token, maxAgeSeconds);
             HttpHeaders headers = new HttpHeaders();
             headers.add(HttpHeaders.SET_COOKIE, cookie.toString());
 
@@ -88,7 +96,8 @@ public class AuthController {
                     .body(Map.of(
                             "username", req.getUsername(),
                             "role", role,
-                            "expiresInMs", jwtTtlMs
+                            // keep key for backward compat; value now reflects role-based TTL
+                            "expiresInMs", maxAgeSeconds * 1000L
                     ));
         } catch (BadCredentialsException ex) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
@@ -113,12 +122,12 @@ public class AuthController {
     }
 
     // --- cookie builders ---
-    private ResponseCookie buildAuthCookie(String value, long ttlMs) {
+    private ResponseCookie buildAuthCookie(String value, long maxAgeSeconds) {
         ResponseCookie.ResponseCookieBuilder b = ResponseCookie.from(authCookieName, value)
                 .httpOnly(true)
                 .secure(cookieSecure)
                 .path("/")
-                .maxAge(Duration.ofMillis(ttlMs))
+                .maxAge(Duration.ofSeconds(maxAgeSeconds))
                 .sameSite(sameSite);
         if (StringUtils.hasText(cookieDomain)) {
             b.domain(cookieDomain);

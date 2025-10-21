@@ -15,18 +15,26 @@ import java.util.Date;
 public class JwtTokenProvider {
 
     private final SecretKey secretKey;
-    private final long validityInMs;
+    private final long userValiditySeconds;
+    private final long adminValiditySeconds;
 
     public JwtTokenProvider(
             @Value("${jwt.secret}") String base64Secret,
-            @Value("${jwt.expiration-ms}") long validityInMs) {
+            @Value("${jwt.user-validity-seconds:604800}") long userValiditySeconds,      // 7 days
+            @Value("${jwt.admin-validity-seconds:2592000}") long adminValiditySeconds   // 30 days
+    ) {
         this.secretKey = Keys.hmacShaKeyFor(Decoders.BASE64.decode(base64Secret));
-        this.validityInMs = validityInMs;
+        this.userValiditySeconds = userValiditySeconds;
+        this.adminValiditySeconds = adminValiditySeconds;
     }
 
+    /** role is like "ROLE_ADMIN" or "ROLE_CUSTOMER" */
     public String createToken(String username, String role) {
+        boolean isAdmin = role != null && role.contains("ADMIN");
+        long validityMs = (isAdmin ? adminValiditySeconds : userValiditySeconds) * 1000L;
+
         Date now = new Date();
-        Date expires = new Date(now.getTime() + validityInMs);
+        Date expires = new Date(now.getTime() + validityMs);
 
         return Jwts.builder()
                 .setSubject(username)

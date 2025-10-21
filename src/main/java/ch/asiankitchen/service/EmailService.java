@@ -1,3 +1,4 @@
+// backend/src/main/java/ch/asiankitchen/service/EmailService.java
 package ch.asiankitchen.service;
 
 import ch.asiankitchen.model.ContactMessage;

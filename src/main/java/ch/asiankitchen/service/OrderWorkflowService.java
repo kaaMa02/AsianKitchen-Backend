@@ -150,22 +150,18 @@ public class OrderWorkflowService {
     public void confirmOrder(String kind, UUID id, @Nullable Integer extraMinutes, boolean print) {
         if ("menu".equals(kind)) {
             customerOrderRepo.findById(id).ifPresent(o -> {
-                boolean adjusted = false;
                 if (extraMinutes != null && o.isAsap() && o.getStatus() == OrderStatus.NEW) {
                     int add = Math.max(0, extraMinutes);
                     o.setAdminExtraMinutes(add);
                     o.setCommittedReadyAt(o.getCreatedAt().plusMinutes(o.getMinPrepMinutes() + add));
-                    adjusted = true;
                 }
                 o.setStatus(OrderStatus.CONFIRMED);
                 customerOrderRepo.save(o);
 
                 try { webPushService.broadcast("admin", "{\"title\":\"Order confirmed\",\"body\":\"" + o.getId() + "\"}"); } catch (Exception ignored){}
 
-                // Email customer: "approx. XX minutes" + tracking link
+                // Email customer: ASAP => minutes; scheduled => show local time
                 try { sendEtaEmailAfterConfirm(o); } catch (Exception ignored){}
-
-                if (print) { /* optional: integrate printer hook if you keep server-side printing */ }
             });
         } else if ("buffet".equals(kind)) {
             buffetOrderRepo.findById(id).ifPresent(o -> {
@@ -241,6 +237,7 @@ public class OrderWorkflowService {
     }
 
     // ─── email helpers ──────────────────────────────────────────────────────────
+
     private void sendCancellationEmailToCustomer(CustomerOrder o, String reason) {
         String to = Optional.ofNullable(o.getCustomerInfo()).map(CustomerInfo::getEmail).orElse(null);
         if (to == null || to.isBlank()) return;
@@ -313,6 +310,7 @@ public class OrderWorkflowService {
         mailService.sendSimple(to, subject, body, null);
     }
 
+    /** After admin confirms: ASAP => "approx. X minutes"; scheduled => show local date/time. No Order ID line. */
     private void sendEtaEmailAfterConfirm(CustomerOrder o) {
         String to = Optional.ofNullable(o.getCustomerInfo()).map(CustomerInfo::getEmail).orElse(null);
         if (to == null || to.isBlank()) return;
@@ -323,32 +321,35 @@ public class OrderWorkflowService {
             int extra = Optional.ofNullable(o.getAdminExtraMinutes()).orElse(0);
             etaMin = base + extra;
         } else {
-            etaMin = minutesUntil(o.getCommittedReadyAt());
+            // We do NOT show giant minutes for scheduled orders; show local time instead.
+            etaMin = 0;
         }
 
         String trackUrl = "https://asian-kitchen.online/track?orderId=%s&email=%s"
-                .formatted(o.getId(), o.getCustomerInfo().getEmail());
+                .formatted(o.getId(), Optional.ofNullable(o.getCustomerInfo()).map(CustomerInfo::getEmail).orElse(""));
+
+        String lead = o.isAsap()
+                ? "The order will be delivered in approximately %d minutes.".formatted(etaMin)
+                : "Your order is scheduled for delivery at %s.".formatted(fmtLocal(o.getCommittedReadyAt()));
 
         String subject = "Order confirmed — Asian Kitchen";
         String body = """
                 Hi %s,
 
-                The order will be delivered approx. %d minutes.
+                %s
 
                 Track your order:
                 %s
 
-                Order ID: %s
                 Placed:   %s
                 Deliver:  %s
                 Total:    CHF %s
 
                 — Asian Kitchen
                 """.formatted(
-                Optional.ofNullable(o.getCustomerInfo().getFirstName()).orElse(""),
-                etaMin,
+                Optional.ofNullable(o.getCustomerInfo()).map(CustomerInfo::getFirstName).orElse(""),
+                lead,
                 trackUrl,
-                o.getId(),
                 fmtLocal(o.getCreatedAt()),
                 o.isAsap() ? "ASAP" : fmtLocal(o.getCommittedReadyAt()),
                 o.getTotalPrice()
@@ -357,6 +358,7 @@ public class OrderWorkflowService {
         mailService.sendSimple(to, subject, body, null);
     }
 
+    /** After admin confirms buffet: ASAP => "approx. X minutes"; scheduled => show local date/time. No Order ID line. */
     private void sendEtaEmailAfterConfirm(BuffetOrder o) {
         String to = Optional.ofNullable(o.getCustomerInfo()).map(CustomerInfo::getEmail).orElse(null);
         if (to == null || to.isBlank()) return;
@@ -367,32 +369,34 @@ public class OrderWorkflowService {
             int extra = Optional.ofNullable(o.getAdminExtraMinutes()).orElse(0);
             etaMin = base + extra;
         } else {
-            etaMin = minutesUntil(o.getCommittedReadyAt());
+            etaMin = 0;
         }
 
         String trackUrl = "https://asian-kitchen.online/track-buffet?orderId=%s&email=%s"
-                .formatted(o.getId(), o.getCustomerInfo().getEmail());
+                .formatted(o.getId(), Optional.ofNullable(o.getCustomerInfo()).map(CustomerInfo::getEmail).orElse(""));
+
+        String lead = o.isAsap()
+                ? "The order will be delivered in approximately %d minutes.".formatted(etaMin)
+                : "Your order is scheduled for delivery at %s.".formatted(fmtLocal(o.getCommittedReadyAt()));
 
         String subject = "Buffet order confirmed — Asian Kitchen";
         String body = """
                 Hi %s,
 
-                The order will be delivered approx. %d minutes.
+                %s
 
                 Track your order:
                 %s
 
-                Order ID: %s
                 Placed:   %s
                 Deliver:  %s
                 Total:    CHF %s
 
                 — Asian Kitchen
                 """.formatted(
-                Optional.ofNullable(o.getCustomerInfo().getFirstName()).orElse(""),
-                etaMin,
+                Optional.ofNullable(o.getCustomerInfo()).map(CustomerInfo::getFirstName).orElse(""),
+                lead,
                 trackUrl,
-                o.getId(),
                 fmtLocal(o.getCreatedAt()),
                 o.isAsap() ? "ASAP" : fmtLocal(o.getCommittedReadyAt()),
                 o.getTotalPrice()
