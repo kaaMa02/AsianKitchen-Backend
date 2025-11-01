@@ -115,8 +115,8 @@ public class HoursService {
         return HoursStatusDTO.builder()
                 .openNow(false)
                 .reason(reason)
-                .windowOpensAt(next.map(n -> n.start).orElse(null))
-                .windowClosesAt(next.map(n -> n.end).orElse(null))
+                .windowOpensAt(next.map(n -> n.start.toInstant()).orElse(null))
+                .windowClosesAt(next.map(n -> n.end.toInstant()).orElse(null))
                 .message(msg)
                 .build();
     }
