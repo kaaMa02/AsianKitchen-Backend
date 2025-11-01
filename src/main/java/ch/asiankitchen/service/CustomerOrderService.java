@@ -15,6 +15,7 @@ import org.springframework.web.util.UriUtils;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
@@ -31,19 +32,22 @@ public class CustomerOrderService {
     private final WebPushService webPushService;
     private final DiscountService discountService;
     private final OrderWorkflowService workflow;
+    private final HoursService hoursService; // ⬅️ NEW
 
     public CustomerOrderService(CustomerOrderRepository repo,
                                 MenuItemRepository menuItemRepo,
                                 EmailService email,
                                 WebPushService webPushService,
                                 DiscountService discountService,
-                                OrderWorkflowService workflow) {
+                                OrderWorkflowService workflow,
+                                HoursService hoursService) { // ⬅️ NEW
         this.repo = repo;
         this.menuItemRepo = menuItemRepo;
         this.email = email;
         this.webPushService = webPushService;
         this.discountService = discountService;
         this.workflow = workflow;
+        this.hoursService = hoursService; // ⬅️ NEW
     }
 
     @Value("${vat.ratePercent:2.6}")
@@ -68,6 +72,16 @@ public class CustomerOrderService {
     public CustomerOrderReadDTO create(CustomerOrderWriteDTO dto) {
         final CustomerOrder order = dto.toEntity();
         order.setStatus(OrderStatus.NEW);
+
+        // ⬇️ NEW: Authoritative hours guard BEFORE any persistence
+        final boolean forDelivery = order.getOrderType() == OrderType.DELIVERY;
+        final boolean asap = Boolean.TRUE.equals(order.isAsap());
+        final Instant scheduledAt =
+                !asap && dto.getScheduledAt() != null
+                        ? dto.getScheduledAt().atZone(ZoneId.of(appTz)).toInstant()
+                        : null;
+        hoursService.assertOrderAllowed(forDelivery, asap, scheduledAt);
+        // ⬆️ END guard
 
         if (order.getOrderItems() == null || order.getOrderItems().isEmpty()) {
             throw new IllegalArgumentException("Order must contain at least one item.");

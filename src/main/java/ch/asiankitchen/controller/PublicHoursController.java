@@ -4,6 +4,8 @@ import ch.asiankitchen.dto.HoursStatusDTO;
 import ch.asiankitchen.service.HoursService;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.Instant;
+
 @RestController
 @RequestMapping("/api/public/hours")
 public class PublicHoursController {
@@ -14,10 +16,15 @@ public class PublicHoursController {
         this.hours = hours;
     }
 
-    /** Example: GET /api/public/hours/status?orderType=DELIVERY|TAKEAWAY */
+    /** GET /api/public/hours/status?orderType=DELIVERY|TAKEAWAY&at=2025-11-01T17:30:00Z */
     @GetMapping("/status")
-    public HoursStatusDTO status(@RequestParam(defaultValue = "TAKEAWAY") String orderType) {
+    public HoursStatusDTO status(@RequestParam(defaultValue = "TAKEAWAY") String orderType,
+                                 @RequestParam(required = false) String at) {
         boolean forDelivery = "DELIVERY".equalsIgnoreCase(orderType);
-        return hours.status(forDelivery);
+        if (at == null || at.isBlank()) {
+            return hours.statusNow(forDelivery);
+        }
+        Instant ts = Instant.parse(at);
+        return hours.statusAt(ts, forDelivery);
     }
 }

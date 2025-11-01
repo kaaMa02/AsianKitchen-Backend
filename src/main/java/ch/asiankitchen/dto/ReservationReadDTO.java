@@ -18,6 +18,9 @@ public class ReservationReadDTO {
     private ReservationStatus status;
     private LocalDateTime createdAt;
 
+    private LocalDateTime seenAt;
+    private LocalDateTime escalatedAt;
+
     public static ReservationReadDTO fromEntity(Reservation r) {
         return ReservationReadDTO.builder()
                 .id(r.getId())
@@ -27,6 +30,8 @@ public class ReservationReadDTO {
                 .specialRequests(r.getSpecialRequests())
                 .status(r.getStatus())
                 .createdAt(r.getCreatedAt())
+                .seenAt(r.getSeenAt())
+                .escalatedAt(r.getEscalatedAt())
                 .build();
     }
 }

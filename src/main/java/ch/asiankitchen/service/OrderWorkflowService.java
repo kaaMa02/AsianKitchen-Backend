@@ -24,6 +24,7 @@ public class OrderWorkflowService {
     private final ReservationEmailService reservationEmailService;
     private final EmailService mailService;
     private final WebPushService webPushService;
+    private final HoursService hours;
 
     @Value("${app.order.min-prep-minutes:45}")
     private int defaultMinPrep;
@@ -61,7 +62,7 @@ public class OrderWorkflowService {
         if (o.getMinPrepMinutes() == null || o.getMinPrepMinutes() <= 0) o.setMinPrepMinutes(defaultMinPrep);
         if (o.getAdminExtraMinutes() == null) o.setAdminExtraMinutes(0);
 
-        // normalize requestedAt from local CH to UTC
+        // normalize requestedAt (local → UTC)
         if (!o.isAsap() && o.getRequestedAt() != null) {
             o.setRequestedAt(toUtc(o.getRequestedAt()));
         }
@@ -71,7 +72,16 @@ public class OrderWorkflowService {
                 ? basis.plusMinutes(o.getMinPrepMinutes() + o.getAdminExtraMinutes())
                 : o.getRequestedAt());
 
-        o.setAutoCancelAt(basis.plusMinutes(autocancelMinutes));
+        boolean forDelivery = o.getOrderType() == OrderType.DELIVERY;
+        boolean nowOpen = hours.statusAt(Instant.now(), forDelivery).isOpenNow();
+
+        if (nowOpen) {
+            o.setAutoCancelAt(basis.plusMinutes(autocancelMinutes));
+            o.setEscalatedAt(basis.plusMinutes(escalateMinutes));
+        } else {
+            o.setAutoCancelAt(null); // nobody there
+            o.setEscalatedAt(hours.nextOpeningAfter(Instant.now()).map(this::toUtc).orElse(null));
+        }
     }
 
     public void applyInitialTiming(BuffetOrder o) {
@@ -87,7 +97,28 @@ public class OrderWorkflowService {
                 ? basis.plusMinutes(o.getMinPrepMinutes() + o.getAdminExtraMinutes())
                 : o.getRequestedAt());
 
-        o.setAutoCancelAt(basis.plusMinutes(autocancelMinutes));
+        boolean forDelivery = o.getOrderType() == OrderType.DELIVERY;
+        boolean nowOpen = hours.statusAt(Instant.now(), forDelivery).isOpenNow();
+
+        if (nowOpen) {
+            o.setAutoCancelAt(basis.plusMinutes(autocancelMinutes));
+            o.setEscalatedAt(basis.plusMinutes(escalateMinutes));
+        } else {
+            o.setAutoCancelAt(null);
+            o.setEscalatedAt(hours.nextOpeningAfter(Instant.now()).map(this::toUtc).orElse(null));
+        }
+    }
+
+    public void applyInitialTiming(Reservation r) {
+        LocalDateTime basis = (r.getCreatedAt() != null) ? r.getCreatedAt() : LocalDateTime.now(ZoneOffset.UTC);
+        r.setAutoCancelAt(null); // policy: never auto-cancel reservations
+
+        boolean nowOpen = hours.statusNow(false).isOpenNow();
+        if (nowOpen) {
+            r.setEscalatedAt(basis.plusMinutes(escalateMinutes));
+        } else {
+            r.setEscalatedAt(hours.nextOpeningAfter(Instant.now()).map(this::toUtc).orElse(null));
+        }
     }
 
     // ───── admin interactions ─────
@@ -141,11 +172,11 @@ public class OrderWorkflowService {
 
     // Back-compat: older callers
     @Transactional
-    public void confirmOrder(String kind, UUID id, boolean print) {
-        confirmOrder(kind, id, null, print);
+    public void confirmOrder(String kind, UUID id) {
+        confirmOrder(kind, id, null, false);
     }
 
-    // Preferred: allow inline extraMinutes (from UI bubbles) and optional print flag
+    // Preferred: allow inline extraMinutes and optional print flag
     @Transactional
     public void confirmOrder(String kind, UUID id, @Nullable Integer extraMinutes, boolean print) {
         if ("menu".equals(kind)) {
@@ -160,7 +191,6 @@ public class OrderWorkflowService {
 
                 try { webPushService.broadcast("admin", "{\"title\":\"Order confirmed\",\"body\":\"" + o.getId() + "\"}"); } catch (Exception ignored){}
 
-                // Email customer: ASAP => minutes; scheduled => show local time
                 try { sendEtaEmailAfterConfirm(o); } catch (Exception ignored){}
             });
         } else if ("buffet".equals(kind)) {
@@ -177,7 +207,6 @@ public class OrderWorkflowService {
                 try { sendEtaEmailAfterConfirm(o); } catch (Exception ignored){}
             });
         } else if ("reservation".equals(kind)) {
-            // reservations: confirmation happens via patchExtraMinutes() path above
             reservationRepo.findById(id).ifPresent(r -> {
                 r.setStatus(ReservationStatus.CONFIRMED);
                 reservationRepo.save(r);
@@ -199,25 +228,19 @@ public class OrderWorkflowService {
             customerOrderRepo.findById(id).ifPresent(o -> {
                 o.setStatus(OrderStatus.CANCELLED);
                 customerOrderRepo.save(o);
-
-                // Notify owner if paid via Stripe (SUCCEEDED) → manual refund needed
                 if (o.getPaymentStatus() == PaymentStatus.SUCCEEDED) {
                     notifyOwnerRefundNeeded("Menu", o.getId(), o.getCustomerInfo(), o, reason);
                 }
-
                 try { sendCancellationEmailToCustomer(o, reason); } catch (Exception ignored) {}
             });
         } else if ("buffet".equals(kind)) {
             buffetOrderRepo.findById(id).ifPresent(o -> {
                 o.setStatus(OrderStatus.CANCELLED);
                 buffetOrderRepo.save(o);
-
                 if (o.getPaymentStatus() == PaymentStatus.SUCCEEDED) {
                     notifyOwnerRefundNeeded("Buffet", o.getId(), o.getCustomerInfo(), o, reason);
                 }
-
                 try { sendCancellationEmailToCustomer(o, reason); } catch (Exception ignored) {}
-
             });
         } else if ("reservation".equals(kind)) {
             reservationRepo.findById(id).ifPresent(r -> {
@@ -235,6 +258,7 @@ public class OrderWorkflowService {
         var nowUtc = LocalDateTime.now(ZoneOffset.UTC);
         return Math.max(0, Duration.between(nowUtc, utcTarget).toMinutes());
     }
+
 
     // ─── email helpers ──────────────────────────────────────────────────────────
 
@@ -436,5 +460,9 @@ public class OrderWorkflowService {
                 """.formatted(kind, id, Optional.ofNullable(reason).orElse("(none)"), customerBlock);
 
         mailService.sendSimple(otherOwnerEmail, "Refund needed — " + kind + " " + id, body, null);
+    }
+
+    private LocalDateTime toUtc(ZonedDateTime z) {
+        return z.withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime();
     }
 }

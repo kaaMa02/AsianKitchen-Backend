@@ -14,6 +14,7 @@ import org.springframework.web.util.UriUtils;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
@@ -31,17 +32,20 @@ public class BuffetOrderService {
     private final WebPushService webPushService;
     private final DiscountService discountService;
     private final OrderWorkflowService workflow;
+    private final HoursService hoursService; // ⬅️ NEW
 
     public BuffetOrderService(BuffetOrderRepository repo,
                               EmailService email,
                               WebPushService webPushService,
                               DiscountService discountService,
-                              OrderWorkflowService workflow) {
+                              OrderWorkflowService workflow,
+                              HoursService hoursService) { // ⬅️ NEW
         this.repo = repo;
         this.email = email;
         this.webPushService = webPushService;
         this.discountService = discountService;
         this.workflow = workflow;
+        this.hoursService = hoursService; // ⬅️ NEW
     }
 
     @Value("${vat.ratePercent:2.6}")
@@ -66,6 +70,16 @@ public class BuffetOrderService {
     public BuffetOrderReadDTO create(BuffetOrderWriteDTO dto) {
         final BuffetOrder order = dto.toEntity();
         order.setStatus(OrderStatus.NEW);
+
+        // ⬇️ NEW: Authoritative hours guard BEFORE any persistence
+        final boolean forDelivery = order.getOrderType() == OrderType.DELIVERY;
+        final boolean asap = Boolean.TRUE.equals(order.isAsap());
+        final Instant scheduledAt =
+                !asap && dto.getScheduledAt() != null
+                        ? dto.getScheduledAt().atZone(ZoneId.of(appTz)).toInstant()
+                        : null;
+        hoursService.assertOrderAllowed(forDelivery, asap, scheduledAt);
+        // ⬆️ END guard
 
         BigDecimal items = Optional.ofNullable(order.getTotalPrice())
                 .orElse(BigDecimal.ZERO)

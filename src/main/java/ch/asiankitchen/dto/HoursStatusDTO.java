@@ -2,6 +2,7 @@ package ch.asiankitchen.dto;
 
 import lombok.*;
 
+import java.time.Instant;
 import java.time.ZonedDateTime;
 
 @Data
@@ -23,10 +24,10 @@ public class HoursStatusDTO {
     private Reason reason;
 
     /** start of the active/next window in restaurant tz (nullable) */
-    private ZonedDateTime windowOpensAt;
+    private Instant windowOpensAt;
 
     /** end of the active/next window in restaurant tz (nullable) */
-    private ZonedDateTime windowClosesAt;
+    private Instant windowClosesAt;
 
     /** helpful text you can show directly if you want */
     private String message;

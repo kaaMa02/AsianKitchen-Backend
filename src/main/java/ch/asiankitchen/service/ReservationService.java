@@ -1,4 +1,3 @@
-// backend/src/main/java/ch/asiankitchen/service/ReservationService.java
 package ch.asiankitchen.service;
 
 import ch.asiankitchen.dto.*;
@@ -7,6 +6,7 @@ import ch.asiankitchen.model.Reservation;
 import ch.asiankitchen.model.ReservationStatus;
 import ch.asiankitchen.repository.ReservationRepository;
 import jakarta.persistence.EntityNotFoundException;
+import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,9 +18,11 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
+@RequiredArgsConstructor
 public class ReservationService {
     private final ReservationRepository repo;
     private final ReservationEmailService emailService;
+    private final OrderWorkflowService workflow; // ⬅️ NEW
 
     @Value("${app.timezone:Europe/Zurich}")
     private String appTz;
@@ -32,16 +34,16 @@ public class ReservationService {
                 .toLocalDateTime();
     }
 
-    public ReservationService(ReservationRepository repo, ReservationEmailService emailService) {
-        this.repo = repo;
-        this.emailService = emailService;
-    }
-
     @Transactional
     public ReservationReadDTO create(ReservationWriteDTO dto) {
         var entity = dto.toEntity();
         entity.setReservationDateTime(toUtc(dto.getReservationDateTime()));
         var saved = repo.save(entity);
+
+        // NEW: re-ping policy for reservations (no auto-cancel)
+        workflow.applyInitialTiming(saved);
+        repo.save(saved);
+
         emailService.sendNewReservationToRestaurant(saved);
         return ReservationReadDTO.fromEntity(saved);
     }
