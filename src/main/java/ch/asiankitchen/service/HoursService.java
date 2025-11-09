@@ -1,7 +1,6 @@
 package ch.asiankitchen.service;
 
 import ch.asiankitchen.dto.HoursStatusDTO;
-import ch.asiankitchen.model.RestaurantInfo;
 import ch.asiankitchen.repository.RestaurantInfoRepository;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -39,15 +38,41 @@ public class HoursService {
     @Value("${app.order.schedule-minutes-after-open-when-closed:60}")
     private int minutesAfterOpenWhenClosed;
 
-    /** openingHours JSON shape: { "1":[{"open":"11:00","close":"14:00"}, ...], "2":[...], ... } */
+    /** openingHours JSON shape (canonical): { "1":[{"open":"11:00","close":"14:00"}, ...], ... } */
     public Map<Integer, List<Window>> loadWeekly() {
         var info = infoRepo.findAll().stream().findFirst().orElse(null);
-        if (info == null || info.getOpeningHours() == null || info.getOpeningHours().isBlank()) return Map.of();
+        if (info == null) return Map.of();
+        String s = info.getOpeningHours();
+        if (s == null || s.isBlank()) return Map.of();
+
+        // Primary: canonical numeric-day format
         try {
-            return mapper.readValue(info.getOpeningHours(), new TypeReference<>() {});
-        } catch (Exception e) {
-            return Map.of(); // malformed -> treat as closed
-        }
+            return mapper.readValue(s, new TypeReference<Map<Integer, List<Window>>>() {});
+        } catch (Exception ignored) { }
+
+        // Fallback: accept day-name keys (Mon..Sun) just in case older data slips in
+        try {
+            Map<String, List<Window>> byName =
+                    mapper.readValue(s, new TypeReference<Map<String, List<Window>>>() {});
+            Map<Integer, List<Window>> norm = new HashMap<>();
+            byName.forEach((k, v) -> {
+                int d = switch (k.trim().toLowerCase(Locale.ROOT)) {
+                    case "1","01","mon","monday" -> 1;
+                    case "2","02","tue","tues","tuesday" -> 2;
+                    case "3","03","wed","wednesday" -> 3;
+                    case "4","04","thu","thur","thurs","thursday" -> 4;
+                    case "5","05","fri","friday" -> 5;
+                    case "6","06","sat","saturday" -> 6;
+                    case "7","07","sun","sunday" -> 7;
+                    default -> 0;
+                };
+                if (d != 0) norm.put(d, v);
+            });
+            return norm;
+        } catch (Exception ignored) { }
+
+        // Last resort: treat as closed to be safe
+        return Map.of();
     }
 
     /** Convenience: status for NOW. */
@@ -55,7 +80,7 @@ public class HoursService {
         return statusAt(Instant.now(), forDelivery);
     }
 
-    /** Core: answer “what’s my status at the given instant?”. */
+    /** Core: “what’s my status at the given instant?” */
     public HoursStatusDTO statusAt(Instant atInstant, boolean forDelivery) {
         ZoneId zone = ZoneId.of(tzId);
         ZonedDateTime at = atInstant.atZone(zone);
@@ -123,7 +148,7 @@ public class HoursService {
 
     /**
      * Guard for placing an order:
-     * - ASAP: rejected if NOW is closed; target = now + minPrepMinutes must be inside an open window (with cutoff).
+     * - ASAP: NOW must be open; target = now + minPrepMinutes must also be inside an open window (and delivery cutoff respected).
      * - Scheduled: allowed while closed only if requestedAt ≥ (nextOpen + minutesAfterOpenWhenClosed);
      *   and target window must be open (with cutoff).
      */
@@ -142,7 +167,6 @@ public class HoursService {
         } else {
             HoursStatusDTO nowStatus = statusAt(now, forDelivery);
             if (!nowStatus.isOpenNow()) {
-                // must be after (nextOpen + minutesAfterOpenWhenClosed)
                 Optional<ZonedDateTime> nextOpen = nextOpeningAfter(now);
                 if (nextOpen.isEmpty()) {
                     throw new ResponseStatusException(CONFLICT, "RESTAURANT_CLOSED_NO_NEXT_OPEN");
@@ -212,6 +236,7 @@ public class HoursService {
         }
     }
 
+    // Public so RestaurantInfoService can reuse for normalization
     public static class Window { public String open; public String close; }
     private record Interval(ZonedDateTime start, ZonedDateTime end) {}
 }
