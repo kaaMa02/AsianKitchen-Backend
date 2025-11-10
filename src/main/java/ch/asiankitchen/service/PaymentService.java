@@ -37,6 +37,7 @@ public class PaymentService {
     // ── Services
     private final DiscountService discountService;
     private final WebPushService webPushService;
+    private final DeliveryZoneService deliveryZones;
     // used to send customer email after webhook success
     private final CustomerOrderService customerOrderService;
     private final BuffetOrderService buffetOrderService;
@@ -53,9 +54,6 @@ public class PaymentService {
     @Value("${vat.ratePercent:2.6}")
     private BigDecimal vatRatePercent;
 
-    @Value("${app.delivery.allowed-plz:}")
-    private String allowedPlzCsv;
-
     @Value("${app.delivery.reject-message:We don’t deliver to this address.}")
     private String rejectMessage;
 
@@ -68,15 +66,9 @@ public class PaymentService {
     @Value("${app.delivery.free-threshold-chf:100.00}")
     private BigDecimal freeDeliveryThresholdChf;
 
-    private Set<String> allowedPlz;
-
     @PostConstruct
     void init() {
         Stripe.apiKey = secretKey;
-        allowedPlz = Arrays.stream(allowedPlzCsv.split(","))
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .collect(Collectors.toSet());
     }
 
     // ───────────────────────────────────────────────────────────
@@ -456,11 +448,8 @@ public class PaymentService {
         String plz = Optional.ofNullable(info)
                 .map(CustomerInfo::getAddress)
                 .map(Address::getPlz)
-                .map(String::trim)
-                .orElse("");
-        if (!allowedPlz.contains(plz)) {
-            throw new IllegalArgumentException(rejectMessage);
-        }
+                .orElse(null);
+        deliveryZones.assertDeliverableOrThrow(orderType, plz);
     }
 
     private void enforceMinOrder(BigDecimal itemsPreDiscount) {
