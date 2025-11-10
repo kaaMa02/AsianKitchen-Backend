@@ -38,14 +38,13 @@ public class DeliveryZoneService {
 
     @PostConstruct
     void init() {
-        String source = (rulesCsv != null && !rulesCsv.isBlank())
-                ? rulesCsv
-                : allowedPlzCsv; // fallback to old exact list
-
+        String source = (rulesCsv != null && !rulesCsv.isBlank()) ? rulesCsv : allowedPlzCsv;
         if (source == null || source.isBlank()) {
-            rules = List.of(); // no delivery zone configured -> treat as none
+            rules = List.of();
+            System.out.println("[DELIVERY] No delivery rules configured.");
             return;
         }
+        System.out.println("[DELIVERY] Using rules: " + source);
 
         List<Rule> parsed = new ArrayList<>();
         for (String raw : source.split(",")) {
