@@ -22,7 +22,7 @@ public class DeliveryZoneService {
     @Value("${app.delivery.allowed-plz:}")
     private String allowedPlzCsv;
 
-    @Value("${app.delivery.reject-message:We don’t deliver to this address.}")
+    @Value("${app.delivery.reject-message:We do not deliver to this address.}")
     private String rejectMessage;
 
     @Value("${app.delivery.min-order-chf:30.00}")
@@ -82,9 +82,17 @@ public class DeliveryZoneService {
         rules = List.copyOf(parsed);
     }
 
+    /** Keep only digits; left-pad to 4 if 3-digit (Swiss PLZ are 4 digits). */
+    private String normalizePlz(String plz) {
+        if (plz == null) return "";
+        String digits = plz.replaceAll("\\D", "");
+        if (digits.length() == 3) digits = "0" + digits;
+        return digits;
+    }
+
     public boolean isDeliverablePlz(String plz) {
         if (rules.isEmpty()) return false;
-        String n = (plz == null ? "" : plz.trim());
+        String n = normalizePlz(plz);
         if (!n.matches("^\\d{4}$")) return false;
         int v = Integer.parseInt(n);
         for (Rule r : rules) {
