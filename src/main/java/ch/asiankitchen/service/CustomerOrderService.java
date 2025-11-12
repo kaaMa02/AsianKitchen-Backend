@@ -68,20 +68,20 @@ public class CustomerOrderService {
         return utc.atOffset(ZoneOffset.UTC).atZoneSameInstant(ZoneId.of(appTz)).format(fmt());
     }
 
+    private Instant toAppInstant(LocalDateTime ldt) {
+        return ldt == null ? null : ldt.atZone(ZoneId.of(appTz)).toInstant();
+    }
+
     @Transactional
     public CustomerOrderReadDTO create(CustomerOrderWriteDTO dto) {
         final CustomerOrder order = dto.toEntity();
         order.setStatus(OrderStatus.NEW);
 
-        // ⬇️ NEW: Authoritative hours guard BEFORE any persistence
         final boolean forDelivery = order.getOrderType() == OrderType.DELIVERY;
         final boolean asap = Boolean.TRUE.equals(order.isAsap());
-        final Instant scheduledAt =
-                !asap && dto.getScheduledAt() != null
-                        ? dto.getScheduledAt().atZone(ZoneId.of(appTz)).toInstant()
-                        : null;
+        final Instant scheduledAt = !asap ? toAppInstant(dto.getScheduledAt()) : null;
+
         hoursService.assertOrderAllowed(forDelivery, asap, scheduledAt);
-        // ⬆️ END guard
 
         if (order.getOrderItems() == null || order.getOrderItems().isEmpty()) {
             throw new IllegalArgumentException("Order must contain at least one item.");

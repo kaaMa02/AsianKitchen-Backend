@@ -1,9 +1,11 @@
 package ch.asiankitchen.dto;
 
+import ch.asiankitchen.jackson.FlexibleLocalDateTimeDeserializer;
 import ch.asiankitchen.model.BuffetOrder;
 import ch.asiankitchen.model.OrderType;
 import ch.asiankitchen.model.PaymentMethod;
 import ch.asiankitchen.model.User;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
@@ -43,6 +45,8 @@ public class BuffetOrderWriteDTO {
     private PaymentMethod paymentMethod;
 
     private Boolean asap;               // default true
+
+    @JsonDeserialize(using = FlexibleLocalDateTimeDeserializer.class)
     private LocalDateTime scheduledAt;  // used if asap=false
 
     public void setItems(List<BuffetOrderItemWriteDTO> items) {

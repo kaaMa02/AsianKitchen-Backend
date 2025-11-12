@@ -66,20 +66,20 @@ public class BuffetOrderService {
         return utc.atOffset(ZoneOffset.UTC).atZoneSameInstant(ZoneId.of(appTz)).format(fmt());
     }
 
+    private Instant toAppInstant(LocalDateTime ldt) {
+        return ldt == null ? null : ldt.atZone(ZoneId.of(appTz)).toInstant();
+    }
+
     @Transactional
     public BuffetOrderReadDTO create(BuffetOrderWriteDTO dto) {
         final BuffetOrder order = dto.toEntity();
         order.setStatus(OrderStatus.NEW);
 
-        // ⬇️ NEW: Authoritative hours guard BEFORE any persistence
         final boolean forDelivery = order.getOrderType() == OrderType.DELIVERY;
         final boolean asap = Boolean.TRUE.equals(order.isAsap());
-        final Instant scheduledAt =
-                !asap && dto.getScheduledAt() != null
-                        ? dto.getScheduledAt().atZone(ZoneId.of(appTz)).toInstant()
-                        : null;
+        final Instant scheduledAt = !asap ? toAppInstant(dto.getScheduledAt()) : null;
+
         hoursService.assertOrderAllowed(forDelivery, asap, scheduledAt);
-        // ⬆️ END guard
 
         BigDecimal items = Optional.ofNullable(order.getTotalPrice())
                 .orElse(BigDecimal.ZERO)

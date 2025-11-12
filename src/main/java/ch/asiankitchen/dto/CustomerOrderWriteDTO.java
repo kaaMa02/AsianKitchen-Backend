@@ -1,6 +1,8 @@
 package ch.asiankitchen.dto;
 
+import ch.asiankitchen.jackson.FlexibleLocalDateTimeDeserializer;
 import ch.asiankitchen.model.*;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
 import lombok.*;
@@ -33,6 +35,8 @@ public class CustomerOrderWriteDTO {
     private List<OrderItemWriteDTO> items;
 
     private Boolean asap;               // default true
+
+    @JsonDeserialize(using = FlexibleLocalDateTimeDeserializer.class)
     private LocalDateTime scheduledAt;  // required if asap == false
 
     public void setItems(List<OrderItemWriteDTO> items) {
