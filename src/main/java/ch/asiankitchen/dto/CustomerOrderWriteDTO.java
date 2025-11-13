@@ -1,6 +1,6 @@
 package ch.asiankitchen.dto;
 
-import ch.asiankitchen.jackson.FlexibleLocalDateTimeDeserializer;
+import ch.asiankitchen.json.FlexibleLocalDateTimeDeserializer;
 import ch.asiankitchen.model.*;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import jakarta.validation.Valid;

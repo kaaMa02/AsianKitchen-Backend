@@ -1,4 +1,3 @@
-// backend/src/main/java/ch/asiankitchen/service/BuffetOrderService.java
 package ch.asiankitchen.service;
 
 import ch.asiankitchen.dto.BuffetOrderReadDTO;
@@ -32,20 +31,20 @@ public class BuffetOrderService {
     private final WebPushService webPushService;
     private final DiscountService discountService;
     private final OrderWorkflowService workflow;
-    private final HoursService hoursService; // ⬅️ NEW
+    private final HoursService hoursService;
 
     public BuffetOrderService(BuffetOrderRepository repo,
                               EmailService email,
                               WebPushService webPushService,
                               DiscountService discountService,
                               OrderWorkflowService workflow,
-                              HoursService hoursService) { // ⬅️ NEW
+                              HoursService hoursService) {
         this.repo = repo;
         this.email = email;
         this.webPushService = webPushService;
         this.discountService = discountService;
         this.workflow = workflow;
-        this.hoursService = hoursService; // ⬅️ NEW
+        this.hoursService = hoursService;
     }
 
     @Value("${vat.ratePercent:2.6}")

@@ -1,4 +1,3 @@
-// backend/src/main/java/ch/asiankitchen/service/CustomerOrderService.java
 package ch.asiankitchen.service;
 
 import ch.asiankitchen.dto.CustomerOrderReadDTO;
@@ -10,6 +9,7 @@ import ch.asiankitchen.repository.MenuItemRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.util.UriUtils;
 
 import java.math.BigDecimal;
@@ -23,6 +23,9 @@ import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
 
+import static org.springframework.http.HttpStatus.CONFLICT;
+import static org.springframework.http.HttpStatus.UNPROCESSABLE_ENTITY;
+
 @Service
 public class CustomerOrderService {
 
@@ -32,7 +35,7 @@ public class CustomerOrderService {
     private final WebPushService webPushService;
     private final DiscountService discountService;
     private final OrderWorkflowService workflow;
-    private final HoursService hoursService; // ⬅️ NEW
+    private final HoursService hoursService;
 
     public CustomerOrderService(CustomerOrderRepository repo,
                                 MenuItemRepository menuItemRepo,
@@ -40,14 +43,14 @@ public class CustomerOrderService {
                                 WebPushService webPushService,
                                 DiscountService discountService,
                                 OrderWorkflowService workflow,
-                                HoursService hoursService) { // ⬅️ NEW
+                                HoursService hoursService) {
         this.repo = repo;
         this.menuItemRepo = menuItemRepo;
         this.email = email;
         this.webPushService = webPushService;
         this.discountService = discountService;
         this.workflow = workflow;
-        this.hoursService = hoursService; // ⬅️ NEW
+        this.hoursService = hoursService;
     }
 
     @Value("${vat.ratePercent:2.6}")
@@ -84,17 +87,19 @@ public class CustomerOrderService {
         hoursService.assertOrderAllowed(forDelivery, asap, scheduledAt);
 
         if (order.getOrderItems() == null || order.getOrderItems().isEmpty()) {
-            throw new IllegalArgumentException("Order must contain at least one item.");
+            throw new ResponseStatusException(UNPROCESSABLE_ENTITY, "ORDER_EMPTY");
         }
 
         order.getOrderItems().forEach(oi -> {
-            if (oi.getQuantity() <= 0) throw new IllegalArgumentException("Each item must have a quantity of at least 1.");
+            if (oi.getQuantity() <= 0) {
+                throw new ResponseStatusException(UNPROCESSABLE_ENTITY, "QUANTITY_MIN_1");
+            }
             UUID id = oi.getMenuItem().getId();
             MenuItem mi = menuItemRepo.findById(id)
                     .orElseThrow(() -> new ResourceNotFoundException("MenuItem", id));
+
             if (!mi.isAvailable()) {
-                String itemName = Optional.ofNullable(mi.getFoodItem()).map(FoodItem::getName).orElse("Item " + mi.getId());
-                throw new IllegalArgumentException("Menu item not available: " + itemName);
+                throw new ResponseStatusException(CONFLICT, "ITEM_UNAVAILABLE");
             }
             oi.setMenuItem(mi);
             oi.setCustomerOrder(order);
@@ -104,9 +109,7 @@ public class CustomerOrderService {
                 .map(oi -> {
                     BigDecimal unit = Optional.ofNullable(oi.getMenuItem().getPrice()).orElse(BigDecimal.ZERO);
                     if (unit.compareTo(BigDecimal.ZERO) <= 0) {
-                        String nm = Optional.ofNullable(oi.getMenuItem().getFoodItem())
-                                .map(FoodItem::getName).orElse("Item " + oi.getMenuItem().getId());
-                        throw new IllegalArgumentException("Price missing or zero for: " + nm);
+                        throw new ResponseStatusException(UNPROCESSABLE_ENTITY, "ITEM_PRICE_INVALID");
                     }
                     return unit.multiply(BigDecimal.valueOf(oi.getQuantity()));
                 })
